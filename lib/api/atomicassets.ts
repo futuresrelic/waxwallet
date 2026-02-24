@@ -79,8 +79,27 @@ export interface AssetsQuery {
 export async function getAssets(query: AssetsQuery): Promise<AssetData[]> {
   const params = new URLSearchParams();
   params.set('owner', query.owner);
-  if (query.collection_name) params.set('collection_name', query.collection_name);
-  if (query.schema_name) params.set('schema_name', query.schema_name);
+
+  // AtomicAssets: single collection → collection_name, multiple → collection_whitelist
+  if (query.collection_name) {
+    const cols = query.collection_name.split(',').map((s) => s.trim()).filter(Boolean);
+    if (cols.length === 1) {
+      params.set('collection_name', cols[0]);
+    } else if (cols.length > 1) {
+      params.set('collection_whitelist', cols.join(','));
+    }
+  }
+
+  // AtomicAssets: single schema → schema_name, multiple → schema_whitelist
+  if (query.schema_name) {
+    const schemas = query.schema_name.split(',').map((s) => s.trim()).filter(Boolean);
+    if (schemas.length === 1) {
+      params.set('schema_name', schemas[0]);
+    } else if (schemas.length > 1) {
+      params.set('schema_whitelist', schemas.join(','));
+    }
+  }
+
   if (query.template_id) params.set('template_id', query.template_id);
   if (query.match) params.set('match', query.match);
 
