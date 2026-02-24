@@ -1,17 +1,17 @@
 'use client';
+import { useEffect, useRef } from 'react';
 import { AssetCard } from './AssetCard';
-import { PageSpinner } from './ui/Spinner';
-import { Button } from './ui/Button';
-import { ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
-import type { AssetData, AssetFilters, TemplateLink } from '@/lib/types';
+import { PageSpinner, Spinner } from './ui/Spinner';
+import { AlertTriangle } from 'lucide-react';
+import type { AssetData, TemplateLink } from '@/lib/types';
 
 interface AssetGridProps {
   assets: AssetData[];
   isLoading: boolean;
   error: string | null;
-  filters: AssetFilters;
-  onPageChange: (page: number) => void;
   hasMore: boolean;
+  isFetchingMore: boolean;
+  onLoadMore: () => void;
   /** template_id → TemplateLink map for link decoration (optional) */
   templateLinksMap?: Map<string, TemplateLink>;
 }
@@ -20,11 +20,29 @@ export function AssetGrid({
   assets,
   isLoading,
   error,
-  filters,
-  onPageChange,
   hasMore,
+  isFetchingMore,
+  onLoadMore,
   templateLinksMap,
 }: AssetGridProps) {
+  // Intersection-observer sentinel at the bottom of the grid
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isFetchingMore) {
+          onLoadMore();
+        }
+      },
+      { rootMargin: '300px' }, // start loading before user reaches bottom
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, isFetchingMore, onLoadMore]);
+
   if (isLoading) return <PageSpinner />;
 
   if (error) {
@@ -65,29 +83,16 @@ export function AssetGrid({
         ))}
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between pt-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={filters.page <= 1}
-          onClick={() => onPageChange(filters.page - 1)}
-        >
-          <ChevronLeft className="w-4 h-4" />
-          Prev
-        </Button>
-        <span className="text-sm text-zinc-400">
-          Page {filters.page} · {assets.length} assets
-        </span>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={!hasMore}
-          onClick={() => onPageChange(filters.page + 1)}
-        >
-          Next
-          <ChevronRight className="w-4 h-4" />
-        </Button>
+      {/* Infinite-scroll sentinel + status */}
+      <div ref={sentinelRef} className="flex items-center justify-center py-4 min-h-[48px]">
+        {isFetchingMore && (
+          <span className="flex items-center gap-2 text-sm text-zinc-400">
+            <Spinner size="sm" /> Loading more…
+          </span>
+        )}
+        {!hasMore && assets.length > 0 && (
+          <p className="text-xs text-zinc-600">All {assets.length} assets loaded</p>
+        )}
       </div>
     </div>
   );

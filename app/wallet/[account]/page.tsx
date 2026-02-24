@@ -1,7 +1,7 @@
 'use client';
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { Copy, Check, ExternalLink, SlidersHorizontal, X, LayoutGrid, Layers } from 'lucide-react';
 import { AssetGrid } from '@/components/AssetGrid';
 import { TemplateGrid } from '@/components/TemplateGrid';
@@ -26,7 +26,7 @@ interface WalletPageProps {
 
 // ─── Fetchers ─────────────────────────────────────────────────────────────────
 
-async function fetchAssets(account: string, filters: AssetFilters): Promise<AssetData[]> {
+async function fetchAssetsPage(account: string, filters: AssetFilters, page: number): Promise<AssetData[]> {
   const qs = buildQueryString({
     owner: account,
     collection_name: filters.collections.join(',') || undefined,
@@ -34,7 +34,7 @@ async function fetchAssets(account: string, filters: AssetFilters): Promise<Asse
     template_id: filters.templateId || undefined,
     match: filters.search || undefined,
     sort: filters.sortBy,
-    page: filters.page,
+    page,
     limit: filters.limit,
     burned: filters.showBurned ? 'true' : undefined,
   });
@@ -110,12 +110,12 @@ function parseFiltersFromSearch(sp: URLSearchParams): Partial<AssetFilters> {
   if (tid) out.templateId = tid;
   const sort = sp.get('sort');
   if (sort) out.sortBy = sort as AssetFilters['sortBy'];
-  const page = Number(sp.get('page'));
-  if (page > 0) out.page = page;
   const media = sp.get('media');
   if (media === 'image' || media === 'video') out.mediaType = media;
   const burned = sp.get('burned');
   if (burned === 'true') out.showBurned = true;
+  const rarity = sp.get('rarity');
+  if (rarity) out.rarity = rarity;
   return out;
 }
 
@@ -131,9 +131,9 @@ function filtersToSearch(
   if (filters.schemas.length) sp.set('s', filters.schemas.join(','));
   if (filters.templateId) sp.set('t', filters.templateId);
   if (filters.sortBy !== DEFAULT_FILTERS.sortBy) sp.set('sort', filters.sortBy);
-  if (filters.page > 1) sp.set('page', String(filters.page));
   if (filters.mediaType !== 'all') sp.set('media', filters.mediaType);
   if (filters.showBurned) sp.set('burned', 'true');
+  if (filters.rarity) sp.set('rarity', filters.rarity);
   if (viewMode === 'stack') sp.set('view', 'stack');
   if (viewMode === 'stack' && stackSort !== 'count:desc') sp.set('ssort', stackSort);
   if (viewMode === 'stack' && stackPage > 1) sp.set('spage', String(stackPage));
@@ -163,7 +163,7 @@ export default function WalletPage({ params }: WalletPageProps) {
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Sync all state to URL
+  // Sync all state to URL (page number not synced for grid — uses infinite scroll)
   useEffect(() => {
     const sp = filtersToSearch(filters, viewMode, stackSort, stackPage);
     const qs = sp.toString();
@@ -179,15 +179,10 @@ export default function WalletPage({ params }: WalletPageProps) {
     setFilters({ ...DEFAULT_FILTERS });
   }, []);
 
-  const handleViewToggle = useCallback(
-    (mode: 'grid' | 'stack') => {
-      setViewMode(mode);
-      // Reset pagination for the new view
-      if (mode === 'grid') setFilters((f) => ({ ...f, page: 1 }));
-      else setStackPage(1);
-    },
-    [],
-  );
+  const handleViewToggle = useCallback((mode: 'grid' | 'stack') => {
+    setViewMode(mode);
+    if (mode === 'stack') setStackPage(1);
+  }, []);
 
   // ── Data queries ────────────────────────────────────────────────────────────
 
@@ -204,18 +199,43 @@ export default function WalletPage({ params }: WalletPageProps) {
     staleTime: 60_000,
   });
 
-  // Grid-view assets
+  // Infinite-scroll asset query (grid view)
+  // Page number is managed by the infinite query, not filters.page
+  const infiniteKey = useMemo(
+    () => ({
+      owner: account,
+      search: filters.search,
+      collections: filters.collections,
+      schemas: filters.schemas,
+      templateId: filters.templateId,
+      showBurned: filters.showBurned,
+      sortBy: filters.sortBy,
+      limit: filters.limit,
+      rarity: filters.rarity,
+    }),
+    [filters, account],
+  );
+
   const {
-    data: assets = [],
+    data: assetsData,
     isLoading: assetsLoading,
     error: assetsError,
     isFetching: assetsFetching,
-  } = useQuery({
-    queryKey: ['assets', account, filters],
-    queryFn: () => fetchAssets(account, filters),
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ['assets-infinite', infiniteKey],
+    queryFn: ({ pageParam }) => fetchAssetsPage(account, filters, pageParam as number),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length >= filters.limit ? allPages.length + 1 : undefined,
     enabled: viewMode === 'grid',
     staleTime: 15_000,
   });
+
+  // Flatten all pages into a single array
+  const allAssets = useMemo(() => assetsData?.pages.flat() ?? [], [assetsData]);
 
   // Stack-view aggregated templates
   const {
@@ -234,7 +254,7 @@ export default function WalletPage({ params }: WalletPageProps) {
   const { data: templateLinksRaw = [] } = useQuery({
     queryKey: ['templateLinks'],
     queryFn: fetchTemplateLinks,
-    staleTime: 300_000, // 5 min
+    staleTime: 300_000,
   });
 
   const templateLinksMap = useMemo(
@@ -242,18 +262,36 @@ export default function WalletPage({ params }: WalletPageProps) {
     [templateLinksRaw],
   );
 
-  // Client-side media filter (API doesn't support this directly)
-  const displayAssets =
-    filters.mediaType === 'all'
-      ? assets
-      : assets.filter((a) => {
-          const data = { ...a.immutable_data, ...a.mutable_data, ...a.data, ...(a.template?.immutable_data ?? {}) };
-          if (filters.mediaType === 'video') return !!(data.video || data.backimg_video);
-          if (filters.mediaType === 'image') return !!(data.img || data.image || data.thumbnail) && !(data.video);
-          return true;
-        });
+  // ── Client-side filters applied to loaded assets ──────────────────────────
+  // (media type and rarity can't be pushed to the server)
+  const displayAssets = useMemo(() => {
+    let result = allAssets;
+    if (filters.mediaType !== 'all') {
+      result = result.filter((a) => {
+        const data = { ...a.immutable_data, ...a.mutable_data, ...a.data, ...(a.template?.immutable_data ?? {}) };
+        if (filters.mediaType === 'video') return !!(data.video || data.backimg_video);
+        if (filters.mediaType === 'image') return !!(data.img || data.image || data.thumbnail) && !(data.video);
+        return true;
+      });
+    }
+    if (filters.rarity) {
+      result = result.filter((a) => {
+        const data = { ...a.template?.immutable_data, ...a.immutable_data, ...a.mutable_data, ...a.data };
+        return String(data.rarity ?? '') === filters.rarity;
+      });
+    }
+    return result;
+  }, [allAssets, filters.mediaType, filters.rarity]);
 
-  const hasMore = assets.length >= filters.limit;
+  // Derive rarity values from all loaded assets
+  const availableRarities = useMemo(() => {
+    const seen = new Set<string>();
+    for (const asset of allAssets) {
+      const data = { ...asset.template?.immutable_data, ...asset.immutable_data, ...asset.mutable_data, ...asset.data };
+      if (data.rarity && typeof data.rarity === 'string') seen.add(data.rarity);
+    }
+    return Array.from(seen).sort();
+  }, [allAssets]);
 
   const isLoading = viewMode === 'grid' ? assetsLoading : stackLoading;
   const isFetching = viewMode === 'grid' ? assetsFetching : stackFetching;
@@ -282,9 +320,9 @@ export default function WalletPage({ params }: WalletPageProps) {
               </span>
             ) : (
               <>
-                {isFetching && <Spinner size="sm" className="inline mr-1.5" />}
+                {isFetching && !isFetchingNextPage && <Spinner size="sm" className="inline mr-1.5" />}
                 {viewMode === 'grid'
-                  ? `Showing ${displayAssets.length} assets · Page ${filters.page}`
+                  ? `${displayAssets.length} assets loaded${hasNextPage ? ' · scroll for more' : ''}`
                   : `${stackResult?.meta.total ?? 0} unique templates`}
               </>
             )}
@@ -338,7 +376,7 @@ export default function WalletPage({ params }: WalletPageProps) {
           {collections.slice(0, 8).map(({ collection, assets: count }) => (
             <button
               key={collection.collection_name}
-              onClick={() => handleFiltersChange({ collections: [collection.collection_name], page: 1 })}
+              onClick={() => handleFiltersChange({ collections: [collection.collection_name] })}
               className="text-xs px-3 py-1.5 rounded-full bg-zinc-800/60 border border-zinc-700 text-zinc-300 hover:border-amber-500/40 hover:text-amber-400 transition-colors"
             >
               {collection.name || collection.collection_name}
@@ -358,6 +396,7 @@ export default function WalletPage({ params }: WalletPageProps) {
               onChange={handleFiltersChange}
               collections={collections}
               schemas={schemas}
+              rarityValues={availableRarities}
               onClear={handleClearFilters}
             />
           </div>
@@ -379,6 +418,7 @@ export default function WalletPage({ params }: WalletPageProps) {
                 onChange={(f) => { handleFiltersChange(f); }}
                 collections={collections}
                 schemas={schemas}
+                rarityValues={availableRarities}
                 onClear={handleClearFilters}
               />
             </div>
@@ -392,9 +432,9 @@ export default function WalletPage({ params }: WalletPageProps) {
               assets={displayAssets}
               isLoading={assetsLoading}
               error={assetsError instanceof Error ? assetsError.message : null}
-              filters={filters}
-              onPageChange={(p) => handleFiltersChange({ page: p })}
-              hasMore={hasMore}
+              hasMore={hasNextPage ?? false}
+              isFetchingMore={isFetchingNextPage}
+              onLoadMore={fetchNextPage}
               templateLinksMap={templateLinksMap}
             />
           ) : (

@@ -1,6 +1,6 @@
 // ─── GET /api/stack ───────────────────────────────────────────────────────────
-// Server-side template aggregation: fetches up to 2000 assets for a wallet,
-// groups them by template_id, sorts, and paginates.
+// Server-side template aggregation: fetches all assets for a wallet (up to
+// MAX_ASSETS), groups them by template_id, sorts, and paginates.
 //
 // Query params:
 //   owner           required
@@ -17,9 +17,10 @@ import { getAssetMedia, getAssetName, type AssetData, type TemplateStack, type S
 
 export const runtime = 'nodejs';
 
-// Fetch up to 2 pages × 1000 assets = 2000 per aggregation call.
+// Fetch pages in parallel batches to reduce wall-clock time for large wallets.
 const BATCH_SIZE = 1000;
-const MAX_ASSETS = 2000;
+const MAX_ASSETS = 10_000; // safety ceiling; show capped warning above this
+const PARALLEL = 3;        // pages fetched simultaneously per round
 
 async function collectAssets(params: {
   owner: string;
@@ -27,27 +28,40 @@ async function collectAssets(params: {
   schema_name?: string;
 }): Promise<{ assets: AssetData[]; capped: boolean }> {
   const all: AssetData[] = [];
-  let capped = false;
+  let page = 1;
 
-  for (let page = 1; page <= 2; page++) {
-    const batch = await getAssets({
-      owner: params.owner,
-      collection_name: params.collection_name,
-      schema_name: params.schema_name,
-      sort: 'asset_id:asc',
-      page,
-      limit: BATCH_SIZE,
-      _uncapped: true,
-    });
-    all.push(...batch);
-    if (batch.length < BATCH_SIZE) break; // no more pages
-    if (all.length >= MAX_ASSETS) {
-      capped = true;
-      break;
+  while (true) {
+    const remaining = MAX_ASSETS - all.length;
+    if (remaining <= 0) return { assets: all, capped: true };
+
+    const pagesThisRound = Math.min(PARALLEL, Math.ceil(remaining / BATCH_SIZE));
+
+    const results = await Promise.all(
+      Array.from({ length: pagesThisRound }, (_, i) =>
+        getAssets({
+          owner: params.owner,
+          collection_name: params.collection_name,
+          schema_name: params.schema_name,
+          sort: 'asset_id:asc',
+          page: page + i,
+          limit: BATCH_SIZE,
+          _uncapped: true,
+        }),
+      ),
+    );
+
+    let exhausted = false;
+    for (const batch of results) {
+      all.push(...batch);
+      if (batch.length < BATCH_SIZE) { exhausted = true; break; }
+      if (all.length >= MAX_ASSETS) return { assets: all.slice(0, MAX_ASSETS), capped: true };
     }
+
+    if (exhausted) break;
+    page += pagesThisRound;
   }
 
-  return { assets: all.slice(0, MAX_ASSETS), capped };
+  return { assets: all, capped: false };
 }
 
 export async function GET(req: NextRequest) {

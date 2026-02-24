@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Search, X, ChevronDown } from 'lucide-react';
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
-import { Badge } from './ui/Badge';
 import { cn } from '@/lib/utils';
 import { SORT_OPTIONS, type AssetFilters, type SortOption } from '@/lib/types';
 
@@ -13,9 +12,11 @@ interface FilterPanelProps {
   collections: Array<{ collection: { collection_name: string; name: string }; assets: number }>;
   schemas: Array<{ schema_name: string }>;
   onClear: () => void;
+  /** Distinct rarity values found in loaded assets — shown as beta filter when non-empty */
+  rarityValues?: string[];
 }
 
-export function FilterPanel({ filters, onChange, collections, schemas, onClear }: FilterPanelProps) {
+export function FilterPanel({ filters, onChange, collections, schemas, onClear, rarityValues = [] }: FilterPanelProps) {
   const [searchValue, setSearchValue] = useState(filters.search);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -55,7 +56,8 @@ export function FilterPanel({ filters, onChange, collections, schemas, onClear }
     filters.schemas.length > 0 ||
     filters.templateId ||
     filters.showBurned ||
-    filters.mediaType !== 'all';
+    filters.mediaType !== 'all' ||
+    !!filters.rarity;
 
   return (
     <div className="flex flex-col gap-4">
@@ -152,7 +154,7 @@ export function FilterPanel({ filters, onChange, collections, schemas, onClear }
         </div>
       )}
 
-      {/* Schemas */}
+      {/* Schemas (narrows based on selected collections) */}
       {schemas.length > 0 && (
         <div className="flex flex-col gap-1.5">
           <label className="text-xs text-zinc-500 uppercase tracking-wide">Schemas</label>
@@ -184,6 +186,33 @@ export function FilterPanel({ filters, onChange, collections, schemas, onClear }
           onChange={(e) => onChange({ templateId: e.target.value, page: 1 })}
         />
       </div>
+
+      {/* Rarity (beta) — only shown when rarity values are present in loaded assets */}
+      {rarityValues.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-zinc-500 uppercase tracking-wide">Rarity</label>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-400">beta</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {rarityValues.map((r) => (
+              <button
+                key={r}
+                onClick={() => onChange({ rarity: filters.rarity === r ? undefined : r })}
+                className={cn(
+                  'text-xs px-2.5 py-1 rounded-full border transition-colors',
+                  filters.rarity === r
+                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                    : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white',
+                )}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-zinc-600">Filters assets loaded so far</p>
+        </div>
+      )}
 
       {/* Clear */}
       {hasActiveFilters && (

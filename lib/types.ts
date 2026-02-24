@@ -100,6 +100,8 @@ export interface AssetFilters {
   sortBy: SortOption;
   page: number;
   limit: number;
+  /** Optional rarity attribute filter (client-side, derived from loaded assets) */
+  rarity?: string;
 }
 
 export type SortOption =
