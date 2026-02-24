@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import Image from 'next/image';
-import { Play } from 'lucide-react';
+import { Play, Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IPFS_GATEWAYS, type MediaItem } from '@/lib/types';
 
@@ -52,7 +52,7 @@ function MainImage({ url, name }: { url: string; name: string }) {
   );
 }
 
-function MainVideo({ url }: { url: string }) {
+function MainVideo({ url, posterUrl }: { url: string; posterUrl?: string }) {
   const [gwIdx, setGwIdx] = useState(0);
   const src = resolveGateway(url, gwIdx);
   return (
@@ -60,6 +60,7 @@ function MainVideo({ url }: { url: string }) {
       key={src}
       className="w-full h-full object-contain"
       src={src}
+      poster={posterUrl}
       controls
       autoPlay
       loop
@@ -107,6 +108,27 @@ function Thumb({ item, active, onClick }: { item: MediaItem; active: boolean; on
   );
 }
 
+// ─── Copy URL button ──────────────────────────────────────────────────────────
+
+function CopyUrlButton({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      title="Copy media URL"
+      className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-black/50 hover:bg-black/70 text-zinc-400 hover:text-white transition-colors"
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
+
 // ─── Gallery ──────────────────────────────────────────────────────────────────
 
 export function MediaGallery({ items, name }: MediaGalleryProps) {
@@ -129,15 +151,19 @@ export function MediaGallery({ items, name }: MediaGalleryProps) {
 
   const current = items[Math.min(selected, items.length - 1)];
 
+  // Use the first image in the gallery as video poster
+  const firstImage = items.find((i) => i.type === 'image');
+
   return (
     <div className="flex flex-col gap-3">
       {/* Main viewport */}
       <div className="relative rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 aspect-square">
         {current.type === 'video' ? (
-          <MainVideo url={current.url} />
+          <MainVideo url={current.url} posterUrl={firstImage?.url} />
         ) : (
           <MainImage url={current.url} name={name} />
         )}
+        <CopyUrlButton url={current.url} />
       </div>
 
       {/* Thumbnail strip — only rendered when there are multiple items */}

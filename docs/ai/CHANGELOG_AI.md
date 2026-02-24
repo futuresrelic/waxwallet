@@ -5,6 +5,23 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-24 (session 3 — M8: media gallery polish)
+
+Added:
+- `animation_url` field added to `videoFields` in `collectAllMedia()` — common ERC-1155 / WAX NFT standard field for animated media
+- `CopyUrlButton` component in `MediaGallery` — overlay button (top-right of main viewport) that copies current media URL to clipboard; shows Check icon for 1.5s after copy
+- `posterUrl?: string` prop on `MainVideo` — video element now shows a poster image while loading; falls back to first image item in gallery
+
+Changed:
+- `lib/types.ts`: `videoFields` array in `collectAllMedia()` now includes `animation_url`
+- `components/MediaGallery.tsx`: main viewport has copy-URL overlay button; `MainVideo` receives poster from `firstImage?.url`; imports `Copy`, `Check` icons
+
+Migration notes:
+- No API or type changes
+- `animation_url` is now scanned before the generic field scan, so it appears near the top of the gallery if present
+
+---
+
 ## 2026-02-24 (session 3 — M9: admin template links UX)
 
 Added:

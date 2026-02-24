@@ -289,7 +289,7 @@ export function collectAllMedia(asset: AssetData): MediaItem[] {
   };
 
   // Prioritised video fields first so videos appear before their poster images
-  const videoFields = ['video', 'backimg_video'];
+  const videoFields = ['video', 'backimg_video', 'animation_url'];
   const imageFields = ['img', 'image', 'thumbnail', 'preview', 'back_img', 'backimg'];
   const knownFields = new Set([...videoFields, ...imageFields]);
 
