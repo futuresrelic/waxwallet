@@ -94,7 +94,7 @@ Fetch schemas for a collection.
 ### GET /api/stack
 
 Aggregate assets by template for a wallet's stack view.
-Fetches up to 2000 assets server-side, groups by template_id, sorts, and paginates.
+Fetches up to 10 000 assets server-side (parallel batches of 3 × 1000), groups by template_id, sorts, and paginates.
 
 **Query params:**
 | Param           | Required | Default    | Description                                       |
@@ -124,7 +124,7 @@ Fetches up to 2000 assets server-side, groups by template_id, sorts, and paginat
 
 **Cache-Control:** `s-maxage=60, stale-while-revalidate=120`
 
-**Note:** `capped: true` means the wallet has >2000 assets; stacking is incomplete.
+**Note:** `capped: true` means the wallet has >10 000 assets; stacking is incomplete.
 
 ---
 

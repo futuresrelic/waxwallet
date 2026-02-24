@@ -14,13 +14,18 @@ Status legend:
 | Feature                        | Status | Notes                                                              |
 |--------------------------------|--------|--------------------------------------------------------------------|
 | WAX account search             | ✅     | Home page search form                                              |
-| Asset grid view                | ✅     | Paginated, 40/page default, max 100/page                           |
-| Asset detail page              | ✅     | Full metadata, media, attributes, burned status                    |
-| Filter panel                   | ✅     | Search, sort, media type, collections, schemas, template ID, burned|
-| URL-synced filters             | ✅     | All filters encoded in URL search params                           |
+| Asset grid view                | ✅     | Infinite scroll (40/page, IntersectionObserver sentinel)           |
+| Asset detail page              | ✅     | Full metadata, media gallery, attributes, burned status            |
+| Filter panel                   | ✅     | Search, sort, media type, collections, schemas, template ID, burned, rarity (beta) |
+| URL-synced filters             | ✅     | All filters except grid page number synced to URL                  |
 | Collection quick-chips         | ✅     | Top 8 collections shown as clickable chips                         |
 | Mobile filter drawer           | ✅     | Slide-in panel on small screens                                    |
-| Pagination (prev/next)         | ✅     | In AssetGrid and TemplateGrid                                      |
+| Pagination (grid)              | 🔥    | Removed — replaced by infinite scroll                              |
+| Pagination (stack/templates)   | ✅     | Prev/Next buttons in TemplateGrid                                  |
+| Multi-collection filter        | ✅     | Uses collection_whitelist API param server-side                    |
+| Multi-schema filter            | ✅     | Uses schema_whitelist API param server-side                        |
+| Rarity attribute filter (beta) | ✅     | Client-side; derived from loaded assets; hidden when not present   |
+| Media gallery (multi-item)     | ✅     | Thumbnail strip + main viewport; IPFS gateway fallback per item    |
 
 ---
 
@@ -28,11 +33,11 @@ Status legend:
 
 | Feature                        | Status | Notes                                                             |
 |--------------------------------|--------|-------------------------------------------------------------------|
-| Template stack aggregation     | ✅     | /api/stack endpoint, up to 2000 assets                           |
+| Template stack aggregation     | ✅     | /api/stack endpoint, up to 10 000 assets (parallel batches of 3) |
 | TemplateGrid component         | ✅     | Paginated, 20/page, sortable                                      |
 | View mode toggle (grid/stack)  | ✅     | UI toggle in wallet page header                                   |
 | Stack sort options             | ✅     | count, name, template_id (asc/desc)                               |
-| Capped indicator               | ✅     | Shows warning when wallet >2000 assets in stack view              |
+| Capped indicator               | ✅     | Shows warning when wallet >10 000 assets in stack view            |
 
 ---
 

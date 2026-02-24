@@ -93,9 +93,11 @@ Do not violate them without updating this document and getting explicit approval
 - Asset list page limit: max 100 per request (enforced in `getAssets()` unless `_uncapped: true`)
 - Stack aggregation: max 2000 assets fetched (2 pages × 1000), `_uncapped: true` flag required
 - `_uncapped: true` is internal-only — never expose it in public API route params
+- Stack aggregation cap: 10 000 assets max; fetched in parallel batches of 3 × 1000
 - AtomicAssets request timeout: 10 seconds
 - Retry count: 2 attempts with automatic endpoint failover
 - React Query: staleTime minimum 15s for assets, 60s for collections/schemas
+- Next.js Data Cache: **must not** be used for AtomicAssets fetches (`cache: 'no-store'`); large responses crash the handler
 
 ---
 
@@ -103,8 +105,9 @@ Do not violate them without updating this document and getting explicit approval
 
 - IPFS hashes starting with `Qm` or `bafy` are resolved via IPFS gateways
 - HTTP/HTTPS URLs are used as-is
-- MediaViewer component handles gateway fallback automatically
-- Supported media fields (checked in priority order): `video` → `backimg_video` → `img` → `image` → `thumbnail` → `preview`
+- `MediaGallery` component (asset detail) and `MediaViewer` (asset cards) both handle gateway fallback
+- `collectAllMedia(asset)` in `lib/types.ts` scans all data fields and returns `MediaItem[]`
+- Supported media fields (priority order): `video` → `backimg_video` → `img` → `image` → `thumbnail` → `preview` → remaining IPFS/HTTP string fields
 
 ---
 

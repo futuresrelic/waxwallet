@@ -182,12 +182,15 @@ All admin routes → isValidSession(cookie token)
 
 ## Caching Strategy
 
-| Data            | Cache TTL          | Mechanism                         |
-|-----------------|--------------------|-----------------------------------|
-| Assets list     | 15s / stale 30s    | Next.js fetch + Cache-Control header |
-| Stack view      | 60s / stale 120s   | Next.js fetch + Cache-Control header |
-| Collections     | 60s client         | React Query staleTime             |
-| Schemas         | 60s client         | React Query staleTime             |
-| Template links  | 30s / stale 60s    | Cache-Control header              |
-| Asset detail    | 30s Next.js revalidate | next: { revalidate: 30 }      |
-| AtomicAssets    | 30s Next.js cache  | next: { revalidate: 30 }          |
+| Data              | Cache TTL          | Mechanism                              |
+|-------------------|--------------------|----------------------------------------|
+| Assets list       | 15s / stale 30s    | HTTP Cache-Control on API route        |
+| Stack view        | 60s / stale 120s   | HTTP Cache-Control on API route        |
+| Collections       | 60s client         | React Query staleTime                  |
+| Schemas           | 60s client         | React Query staleTime                  |
+| Template links    | 30s / stale 60s    | HTTP Cache-Control on API route        |
+| Asset detail      | 60s / stale 120s   | HTTP Cache-Control on API route        |
+| AtomicAssets fetch| not cached         | cache:'no-store' (prevents >2MB crash) |
+
+**Note:** Next.js Data Cache is intentionally bypassed (`cache: 'no-store'`) on all
+AtomicAssets HTTP calls to prevent "item over 2MB" 500 errors on large wallets.

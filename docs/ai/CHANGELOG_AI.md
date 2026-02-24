@@ -5,6 +5,35 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-24 (session 2 — feature refinements)
+
+Added:
+- `MediaItem` interface and `collectAllMedia(asset)` helper in `lib/types.ts`
+- `components/MediaGallery.tsx` — main viewport + lazy thumbnail strip, IPFS gateway fallback per item
+- `rarity?: string` field on `AssetFilters` type
+- Rarity filter section (beta) in `FilterPanel.tsx` — hidden when no rarity values in loaded assets
+
+Changed:
+- `lib/api/atomicassets.ts` `apiFetch()`: `next: { revalidate: 30 }` → `cache: 'no-store'` (fixes 500s on large responses)
+- `lib/api/atomicassets.ts` `getAssets()`: single collection → `collection_name`, multiple → `collection_whitelist`; same pattern for schemas (`schema_name` vs `schema_whitelist`)
+- `app/api/stack/route.ts`: cap raised 2000 → 10 000; serial page fetching → parallel batches of 3 (PARALLEL=3)
+- `components/AssetGrid.tsx`: prev/next pagination removed; replaced with `useInfiniteQuery` + IntersectionObserver sentinel (300px rootMargin)
+- `app/wallet/[account]/page.tsx`: switched to `useInfiniteQuery`; rarity derivation from loaded assets; `rarityValues` passed to FilterPanel
+- `app/asset/[assetId]/page.tsx`: `MediaViewer` replaced with `MediaGallery`; burned overlay uses `pointer-events-none`
+- `components/FilterPanel.tsx`: added `rarityValues` prop + rarity chips section
+
+Removed:
+- `filters.page` URL sync removed for grid view (infinite scroll; page position not bookmarkable)
+- `ExternalLink` import removed from asset detail (was unused)
+
+Migration notes:
+- No new env vars required
+- No DB changes
+- Railway deployment: no changes needed; `cache: 'no-store'` takes effect automatically
+- `stack` API response: `meta.totalFetched` now up to 10 000 (was 2000); `meta.capped` only true above 10 000
+
+---
+
 ## 2026-02-24
 
 Added:
