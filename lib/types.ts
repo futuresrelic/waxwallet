@@ -178,6 +178,8 @@ export interface StackMeta {
   capped: boolean;
   totalFetched: number;
   noTemplateCount: number;
+  /** true when all wallet assets were scanned (not limited by scan_pages or MAX_ASSETS) */
+  scanComplete: boolean;
 }
 
 // ─── Template Links ────────────────────────────────────────────────────────────

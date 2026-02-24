@@ -10,6 +10,8 @@
 //                             template_id:asc | template_id:desc  (default: count:desc)
 //   page            optional  default 1
 //   limit           optional  default 20, max 50
+//   scan_pages      optional  1-10, each page = 1000 assets (default 3 = fast 3000-asset scan)
+//                             Higher values trade latency for completeness.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssets } from '@/lib/api/atomicassets';
@@ -26,13 +28,14 @@ async function collectAssets(params: {
   owner: string;
   collection_name?: string;
   schema_name?: string;
-}): Promise<{ assets: AssetData[]; capped: boolean }> {
+  maxAssets: number;
+}): Promise<{ assets: AssetData[]; capped: boolean; scanComplete: boolean }> {
   const all: AssetData[] = [];
   let page = 1;
 
   while (true) {
-    const remaining = MAX_ASSETS - all.length;
-    if (remaining <= 0) return { assets: all, capped: true };
+    const remaining = params.maxAssets - all.length;
+    if (remaining <= 0) return { assets: all, capped: all.length >= MAX_ASSETS, scanComplete: false };
 
     const pagesThisRound = Math.min(PARALLEL, Math.ceil(remaining / BATCH_SIZE));
 
@@ -54,14 +57,20 @@ async function collectAssets(params: {
     for (const batch of results) {
       all.push(...batch);
       if (batch.length < BATCH_SIZE) { exhausted = true; break; }
-      if (all.length >= MAX_ASSETS) return { assets: all.slice(0, MAX_ASSETS), capped: true };
+      if (all.length >= params.maxAssets) {
+        return {
+          assets: all.slice(0, params.maxAssets),
+          capped: all.length >= MAX_ASSETS,
+          scanComplete: false,
+        };
+      }
     }
 
     if (exhausted) break;
     page += pagesThisRound;
   }
 
-  return { assets: all, capped: false };
+  return { assets: all, capped: false, scanComplete: true };
 }
 
 export async function GET(req: NextRequest) {
@@ -78,11 +87,17 @@ export async function GET(req: NextRequest) {
   const page = Math.max(1, Number(searchParams.get('page') ?? 1));
   const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') ?? 20)));
 
+  // scan_pages controls how many 1000-asset batches to scan.
+  // Default 3 (3000 assets) for fast initial loads; up to 10 (10k assets = MAX_ASSETS).
+  const scanPages = Math.min(10, Math.max(1, Number(searchParams.get('scan_pages') ?? 3)));
+  const maxAssets = Math.min(MAX_ASSETS, scanPages * BATCH_SIZE);
+
   try {
-    const { assets, capped } = await collectAssets({
+    const { assets, capped, scanComplete } = await collectAssets({
       owner,
       collection_name: collectionName,
       schema_name: schemaName,
+      maxAssets,
     });
 
     // ── Aggregate by template_id ──────────────────────────────────────────────
@@ -140,6 +155,7 @@ export async function GET(req: NextRequest) {
       page,
       limit,
       capped,
+      scanComplete,
       totalFetched: assets.length,
       noTemplateCount,
     };

@@ -1,5 +1,5 @@
 'use client';
-import { ChevronLeft, ChevronRight, AlertTriangle, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, AlertTriangle, Info, RefreshCw } from 'lucide-react';
 import { TemplateCard } from './TemplateCard';
 import { PageSpinner } from './ui/Spinner';
 import { Button } from './ui/Button';
@@ -15,6 +15,10 @@ interface TemplateGridProps {
   onPageChange: (page: number) => void;
   onSortChange: (sort: StackSortOption) => void;
   templateLinksMap: Map<string, TemplateLink>;
+  /** Called when user requests a full wallet scan (scan_pages=10) */
+  onLoadAll?: () => void;
+  /** Whether a full-scan refetch is currently loading */
+  isLoadingAll?: boolean;
 }
 
 export function TemplateGrid({
@@ -27,6 +31,8 @@ export function TemplateGrid({
   onPageChange,
   onSortChange,
   templateLinksMap,
+  onLoadAll,
+  isLoadingAll,
 }: TemplateGridProps) {
   if (isLoading) return <PageSpinner />;
 
@@ -55,22 +61,42 @@ export function TemplateGrid({
     ? (page - 1) * (meta.limit ?? 20) + stacks.length < meta.total
     : false;
 
+  // Scan was limited by scan_pages (not scanComplete), and didn't hit the hard MAX_ASSETS cap
+  const scanIncomplete = meta && !meta.scanComplete && !meta.capped;
+
   return (
     <div className="flex flex-col gap-4">
-      {/* Toolbar: count + capped warning + sort */}
+      {/* Toolbar: count + scan status + sort */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm text-zinc-400">
             {meta?.total ?? stacks.length} unique template{meta?.total !== 1 ? 's' : ''}
           </span>
           {meta?.capped && (
             <span className="flex items-center gap-1 text-xs text-amber-400">
               <Info className="w-3 h-3" />
-              Large wallet — showing first {meta.totalFetched} assets
+              Large wallet — capped at {meta.totalFetched.toLocaleString()} assets
+            </span>
+          )}
+          {scanIncomplete && (
+            <span className="flex items-center gap-1 text-xs text-zinc-400">
+              <Info className="w-3 h-3" />
+              From first {meta!.totalFetched.toLocaleString()} assets
             </span>
           )}
         </div>
-        <div className="relative">
+        <div className="flex items-center gap-2">
+          {scanIncomplete && onLoadAll && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onLoadAll}
+              disabled={isLoadingAll}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAll ? 'animate-spin' : ''}`} />
+              Load complete wallet
+            </Button>
+          )}
           <select
             value={sort}
             onChange={(e) => onSortChange(e.target.value as StackSortOption)}

@@ -66,6 +66,7 @@ async function fetchStack(
   filters: AssetFilters,
   sort: StackSortOption,
   page: number,
+  scanAll: boolean,
 ): Promise<{ data: TemplateStack[]; meta: StackMeta }> {
   const qs = buildQueryString({
     owner: account,
@@ -74,6 +75,7 @@ async function fetchStack(
     sort,
     page,
     limit: 20,
+    scan_pages: scanAll ? 10 : 3,
   });
   const res = await fetch(`/api/stack?${qs}`);
   const json = await res.json();
@@ -177,6 +179,7 @@ export default function WalletPage({ params }: WalletPageProps) {
     return STACK_SORT_OPTIONS.some((o) => o.value === s) ? (s as StackSortOption) : 'count:desc';
   });
   const [stackPage, setStackPage] = useState(() => Math.max(1, Number(searchParams.get('spage') ?? 1)));
+  const [stackScanAll, setStackScanAll] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -198,7 +201,7 @@ export default function WalletPage({ params }: WalletPageProps) {
 
   const handleViewToggle = useCallback((mode: 'grid' | 'stack') => {
     setViewMode(mode);
-    if (mode === 'stack') setStackPage(1);
+    if (mode === 'stack') { setStackPage(1); setStackScanAll(false); }
   }, []);
 
   // ── Data queries ────────────────────────────────────────────────────────────
@@ -261,8 +264,8 @@ export default function WalletPage({ params }: WalletPageProps) {
     error: stackError,
     isFetching: stackFetching,
   } = useQuery({
-    queryKey: ['stack', account, filters.collections, filters.schemas, stackSort, stackPage],
-    queryFn: () => fetchStack(account, filters, stackSort, stackPage),
+    queryKey: ['stack', account, filters.collections, filters.schemas, stackSort, stackPage, stackScanAll],
+    queryFn: () => fetchStack(account, filters, stackSort, stackPage, stackScanAll),
     enabled: viewMode === 'stack',
     staleTime: 60_000,
   });
@@ -466,6 +469,8 @@ export default function WalletPage({ params }: WalletPageProps) {
               onPageChange={setStackPage}
               onSortChange={(s) => { setStackSort(s); setStackPage(1); }}
               templateLinksMap={templateLinksMap}
+              onLoadAll={() => { setStackScanAll(true); setStackPage(1); }}
+              isLoadingAll={stackScanAll && stackFetching}
             />
           )}
         </div>

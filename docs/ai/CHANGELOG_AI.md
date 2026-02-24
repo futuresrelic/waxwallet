@@ -5,6 +5,27 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-24 (session 3 — M7: progressive stack view)
+
+Added:
+- `scan_pages` query param on `GET /api/stack` (default 3, max 10) — each page = 1000 assets, so default = 3000-asset fast scan
+- `scanComplete: boolean` field to `StackMeta` type — true when all wallet assets were scanned
+- `onLoadAll?: () => void` and `isLoadingAll?: boolean` props on `TemplateGrid`
+- `stackScanAll` boolean state in wallet page — when true, passes `scan_pages=10` to fetchStack
+- "From first N assets" info badge + "Load complete wallet" button in TemplateGrid toolbar
+
+Changed:
+- `app/api/stack/route.ts`: `collectAssets()` now accepts `maxAssets` param; returns `scanComplete`; meta includes `scanComplete`
+- `components/TemplateGrid.tsx`: shows scan-incomplete badge and "Load complete wallet" button when `!meta.scanComplete && !meta.capped`
+- `app/wallet/[account]/page.tsx`: stack query key includes `stackScanAll`; `handleViewToggle` resets `stackScanAll`
+
+Migration notes:
+- Default stack scan is now 3000 assets (was 10,000). This means first load is 3× faster.
+- If scan is incomplete, user sees info + "Load complete wallet" button which triggers full scan
+- StackMeta.scanComplete is a new field — old clients reading meta will just ignore it
+
+---
+
 ## 2026-02-24 (session 3 — M6: schema facet counts)
 
 Added:
