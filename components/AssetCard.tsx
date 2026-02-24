@@ -1,16 +1,19 @@
 'use client';
 import Link from 'next/link';
+import { ExternalLink } from 'lucide-react';
 import { MediaViewer } from './MediaViewer';
 import { Badge } from './ui/Badge';
 import { cn, formatMint } from '@/lib/utils';
-import { getAssetMedia, getAssetName, type AssetData } from '@/lib/types';
+import { getAssetMedia, getAssetName, type AssetData, type TemplateLink } from '@/lib/types';
 
 interface AssetCardProps {
   asset: AssetData;
+  /** Template link configured by admin for this asset's template_id (optional). */
+  templateLink?: TemplateLink;
   className?: string;
 }
 
-export function AssetCard({ asset, className }: AssetCardProps) {
+export function AssetCard({ asset, templateLink, className }: AssetCardProps) {
   const { url, type } = getAssetMedia(asset);
   const name = getAssetName(asset);
   const mint = formatMint(asset.template_mint);
@@ -56,6 +59,20 @@ export function AssetCard({ asset, className }: AssetCardProps) {
               <Badge variant="default">T#{asset.template.template_id}</Badge>
             )}
           </div>
+
+          {/* Template link – admin-configured, opens in new tab */}
+          {templateLink && (
+            <a
+              href={templateLink.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="mt-1.5 flex items-center gap-1 text-xs font-medium text-amber-400 hover:text-amber-300 hover:underline"
+            >
+              <ExternalLink className="w-3 h-3 shrink-0" />
+              {templateLink.label || 'View'}
+            </a>
+          )}
         </div>
       </div>
     </Link>

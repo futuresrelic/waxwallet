@@ -1,9 +1,14 @@
 'use client';
 import { useState, useEffect, FormEvent } from 'react';
-import { Shield, RefreshCw, Save, Plus, Trash2, CheckCircle, XCircle, Loader2, LogOut } from 'lucide-react';
+import {
+  Shield, RefreshCw, Save, Plus, Trash2,
+  CheckCircle, XCircle, Loader2, LogOut,
+  ExternalLink, ToggleLeft, ToggleRight,
+} from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
+import type { TemplateLink } from '@/lib/types';
 
 interface EndpointHealth {
   url: string;
@@ -54,15 +59,18 @@ export default function AdminPage() {
   const [featuredStr, setFeaturedStr] = useState('');
   const [blockedStr, setBlockedStr] = useState('');
 
+  // Template links
+  const [templateLinks, setTemplateLinks] = useState<TemplateLink[]>([]);
+  const [newLink, setNewLink] = useState({ template_id: '', label: 'View', url: '', enabled: true });
+  const [linkMsg, setLinkMsg] = useState('');
+  const [linkSaving, setLinkSaving] = useState(false);
+
   // Check if already authed by trying to load config
   useEffect(() => {
     fetch('/api/admin/config')
       .then((r) => {
-        if (r.ok) {
-          setAuthed(true);
-        } else {
-          setAuthed(false);
-        }
+        if (r.ok) setAuthed(true);
+        else setAuthed(false);
       })
       .catch(() => setAuthed(false));
   }, []);
@@ -76,9 +84,10 @@ export default function AdminPage() {
   const loadAll = async () => {
     setStatusLoading(true);
     try {
-      const [configRes, statusRes] = await Promise.all([
+      const [configRes, statusRes, linksRes] = await Promise.all([
         fetch('/api/admin/config').then((r) => r.json()),
         fetch('/api/admin/status').then((r) => r.json()),
+        fetch('/api/admin/template-links').then((r) => r.json()),
       ]);
       if (configRes.success) {
         setConfig(configRes.data);
@@ -86,9 +95,8 @@ export default function AdminPage() {
         setFeaturedStr((configRes.data.featuredCollections ?? []).join('\n'));
         setBlockedStr((configRes.data.blockedCollections ?? []).join('\n'));
       }
-      if (statusRes.success) {
-        setStatus(statusRes.data);
-      }
+      if (statusRes.success) setStatus(statusRes.data);
+      if (linksRes.success) setTemplateLinks(linksRes.data ?? []);
     } catch (err) {
       console.error('Admin load failed:', err);
     } finally {
@@ -107,11 +115,8 @@ export default function AdminPage() {
         body: JSON.stringify({ password }),
       });
       const json = await res.json();
-      if (json.success) {
-        setAuthed(true);
-      } else {
-        setLoginError(json.error ?? 'Invalid password');
-      }
+      if (json.success) setAuthed(true);
+      else setLoginError(json.error ?? 'Invalid password');
     } finally {
       setLoginLoading(false);
     }
@@ -138,19 +143,62 @@ export default function AdminPage() {
         }),
       });
       const json = await res.json();
-      if (json.success) {
-        setSaveMsg('Saved successfully');
-        loadAll();
-      } else {
-        setSaveMsg('Save failed: ' + (json.error ?? 'unknown'));
-      }
+      if (json.success) { setSaveMsg('Saved successfully'); loadAll(); }
+      else setSaveMsg('Save failed: ' + (json.error ?? 'unknown'));
     } finally {
       setSaveLoading(false);
       setTimeout(() => setSaveMsg(''), 3000);
     }
   };
 
-  // Loading / unknown auth state
+  // ── Template links helpers ─────────────────────────────────────────────────
+
+  const handleAddLink = async () => {
+    if (!newLink.template_id.trim() || !newLink.url.trim()) {
+      setLinkMsg('template_id and URL are required');
+      return;
+    }
+    setLinkSaving(true);
+    setLinkMsg('');
+    try {
+      const res = await fetch('/api/admin/template-links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newLink),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setTemplateLinks((prev) => [...prev, json.data]);
+        setNewLink({ template_id: '', label: 'View', url: '', enabled: true });
+        setLinkMsg('Link added');
+      } else {
+        setLinkMsg('Error: ' + (json.error ?? 'unknown'));
+      }
+    } finally {
+      setLinkSaving(false);
+      setTimeout(() => setLinkMsg(''), 3000);
+    }
+  };
+
+  const handleToggleLink = async (id: string, enabled: boolean) => {
+    const res = await fetch('/api/admin/template-links', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, enabled }),
+    });
+    const json = await res.json();
+    if (json.success) {
+      setTemplateLinks((prev) => prev.map((l) => (l.id === id ? json.data : l)));
+    }
+  };
+
+  const handleDeleteLink = async (id: string) => {
+    const res = await fetch(`/api/admin/template-links?id=${id}`, { method: 'DELETE' });
+    if (res.ok) setTemplateLinks((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   if (authed === null) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -159,7 +207,6 @@ export default function AdminPage() {
     );
   }
 
-  // Login form
   if (!authed) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
@@ -178,15 +225,12 @@ export default function AdminPage() {
             onChange={(e) => setPassword(e.target.value)}
             error={loginError}
           />
-          <Button type="submit" loading={loginLoading}>
-            Login
-          </Button>
+          <Button type="submit" loading={loginLoading}>Login</Button>
         </form>
       </div>
     );
   }
 
-  // Admin dashboard
   return (
     <div className="flex flex-col gap-8 max-w-4xl mx-auto">
       {/* Header */}
@@ -236,22 +280,18 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* Current endpoint */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
             <p className="text-xs text-zinc-500 mb-1">Active Endpoint</p>
             <p className="font-mono text-sm text-amber-400">{status.currentEndpoint}</p>
           </div>
 
-          {/* Endpoint health */}
           <div className="flex flex-col gap-2">
             {status.endpoints.map((ep) => (
               <div key={ep.url} className="flex items-center justify-between bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3 gap-4">
                 <div className="flex items-center gap-2 min-w-0">
-                  {ep.healthy ? (
-                    <CheckCircle className="w-4 h-4 text-green-400 shrink-0" />
-                  ) : (
-                    <XCircle className="w-4 h-4 text-red-400 shrink-0" />
-                  )}
+                  {ep.healthy
+                    ? <CheckCircle className="w-4 h-4 text-green-400 shrink-0" />
+                    : <XCircle className="w-4 h-4 text-red-400 shrink-0" />}
                   <span className="font-mono text-sm text-zinc-300 truncate">{ep.url}</span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -268,7 +308,6 @@ export default function AdminPage() {
             ))}
           </div>
 
-          {/* Recent errors */}
           {status.recentErrors.length > 0 && (
             <div className="flex flex-col gap-2">
               <h3 className="text-sm font-medium text-zinc-400">Recent Errors</h3>
@@ -286,11 +325,10 @@ export default function AdminPage() {
         </section>
       )}
 
-      {/* Config */}
+      {/* Configuration */}
       <section className="flex flex-col gap-4">
         <h2 className="text-lg font-semibold text-white border-b border-zinc-800 pb-2">Configuration</h2>
 
-        {/* Endpoints */}
         <div className="flex flex-col gap-2">
           <label className="text-sm text-zinc-400">API Endpoints (in priority order)</label>
           {endpoints.map((ep, i) => (
@@ -329,7 +367,6 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Featured collections */}
         <div className="flex flex-col gap-1.5">
           <label className="text-sm text-zinc-400">Featured Collections (one per line)</label>
           <textarea
@@ -341,7 +378,6 @@ export default function AdminPage() {
           />
         </div>
 
-        {/* Blocked collections */}
         <div className="flex flex-col gap-1.5">
           <label className="text-sm text-zinc-400">Blocked Collections (one per line – hide from UI)</label>
           <textarea
@@ -366,26 +402,130 @@ export default function AdminPage() {
         </div>
       </section>
 
+      {/* ── Template Links ──────────────────────────────────────────────────── */}
+      <section className="flex flex-col gap-4">
+        <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Template Links</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              Add a URL per template_id. A small link button appears on matching asset cards.
+            </p>
+          </div>
+          <Badge variant="amber">{templateLinks.length} link{templateLinks.length !== 1 ? 's' : ''}</Badge>
+        </div>
+
+        {/* Add new link form */}
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 flex flex-col gap-3">
+          <h3 className="text-sm font-medium text-zinc-300">Add Template Link</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <Input
+              placeholder="Template ID (e.g. 12345)"
+              value={newLink.template_id}
+              onChange={(e) => setNewLink((l) => ({ ...l, template_id: e.target.value }))}
+            />
+            <Input
+              placeholder="Button label (e.g. Claim)"
+              value={newLink.label}
+              onChange={(e) => setNewLink((l) => ({ ...l, label: e.target.value }))}
+            />
+            <Input
+              placeholder="URL (https://...)"
+              value={newLink.url}
+              onChange={(e) => setNewLink((l) => ({ ...l, url: e.target.value }))}
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={handleAddLink} loading={linkSaving}>
+              <Plus className="w-4 h-4" />
+              Add Link
+            </Button>
+            <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={newLink.enabled}
+                onChange={(e) => setNewLink((l) => ({ ...l, enabled: e.target.checked }))}
+                className="accent-amber-500"
+              />
+              Enabled
+            </label>
+            {linkMsg && (
+              <span className={`text-sm ${linkMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'}`}>
+                {linkMsg}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Existing links table */}
+        {templateLinks.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            {templateLinks.map((link) => (
+              <div
+                key={link.id}
+                className="flex items-center gap-3 bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3"
+              >
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-1 min-w-0">
+                  <span className="font-mono text-sm text-amber-400">T#{link.template_id}</span>
+                  <span className="text-sm text-zinc-300 truncate">{link.label}</span>
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-zinc-400 hover:text-amber-400 truncate flex items-center gap-1"
+                  >
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                    {link.url}
+                  </a>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => handleToggleLink(link.id, !link.enabled)}
+                    title={link.enabled ? 'Disable' : 'Enable'}
+                    className={`transition-colors ${link.enabled ? 'text-amber-400 hover:text-amber-300' : 'text-zinc-600 hover:text-zinc-400'}`}
+                  >
+                    {link.enabled
+                      ? <ToggleRight className="w-5 h-5" />
+                      : <ToggleLeft className="w-5 h-5" />}
+                  </button>
+                  <Badge variant={link.enabled ? 'green' : 'default'}>
+                    {link.enabled ? 'On' : 'Off'}
+                  </Badge>
+                  <button
+                    onClick={() => handleDeleteLink(link.id)}
+                    className="text-red-500 hover:text-red-400"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-zinc-600 text-center py-4">No template links configured yet.</p>
+        )}
+
+        <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-xs text-zinc-500">
+          <strong className="text-zinc-400">Persistence:</strong> Links survive the current process.
+          For persistence across Railway deploys, mount a Volume at <code className="text-amber-400">/data</code> and
+          set <code className="text-amber-400">DATA_DIR=/data</code> in your service Variables.
+          Without this, links reset on every redeploy.
+        </div>
+      </section>
+
       {/* Diagnostics */}
       <section className="flex flex-col gap-4">
         <h2 className="text-lg font-semibold text-white border-b border-zinc-800 pb-2">Diagnostics</h2>
         <div className="flex gap-2 flex-wrap">
-          <a
-            href="/api/health"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-amber-400 hover:underline"
-          >
+          <a href="/api/health" target="_blank" rel="noopener noreferrer" className="text-sm text-amber-400 hover:underline">
             /api/health — live endpoint status
           </a>
           <span className="text-zinc-600">·</span>
-          <a
-            href="/api/assets?owner=futuresrelic&limit=1"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-amber-400 hover:underline"
-          >
+          <a href="/api/assets?owner=futuresrelic&limit=1" target="_blank" rel="noopener noreferrer" className="text-sm text-amber-400 hover:underline">
             Test API call (1 asset)
+          </a>
+          <span className="text-zinc-600">·</span>
+          <a href="/api/template-links" target="_blank" rel="noopener noreferrer" className="text-sm text-amber-400 hover:underline">
+            Template links (public)
           </a>
         </div>
       </section>
