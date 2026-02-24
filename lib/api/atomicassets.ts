@@ -24,9 +24,14 @@ async function apiFetch<T>(path: string, retries = 2): Promise<T> {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
+      // cache: 'no-store' prevents Next.js from writing AtomicAssets responses
+      // into its Data Cache. Responses >2MB (large accounts / 1000-item pages)
+      // caused "Failed to set Next.js data cache … items over 2MB" errors that
+      // surfaced as 500s on Railway. HTTP Cache-Control headers on our own API
+      // routes (CDN layer) and React Query (client) provide all caching needed.
       const res = await fetch(url, {
         signal: controller.signal,
-        next: { revalidate: 30 }, // Next.js cache 30s
+        cache: 'no-store',
         headers: { Accept: 'application/json' },
       });
 
