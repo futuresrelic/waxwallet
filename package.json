@@ -1,0 +1,33 @@
+{
+  "name": "waxwallet",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.21",
+    "@tanstack/react-query-devtools": "^5.91.3",
+    "@wharfkit/session": "^1.6.1",
+    "@wharfkit/wallet-plugin-anchor": "^1.6.1",
+    "@wharfkit/wallet-plugin-cloudwallet": "^1.6.2",
+    "@wharfkit/web-renderer": "^1.4.3",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.575.0",
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "tailwind-merge": "^3.5.0",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
