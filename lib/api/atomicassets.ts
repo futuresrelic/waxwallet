@@ -72,6 +72,8 @@ export interface AssetsQuery {
   page?: number;
   limit?: number;
   burned?: boolean;
+  /** Server-side rarity filter: maps to template_data.rarity=X on AtomicAssets API */
+  attr_rarity?: string;
   /** Internal: bypass 100-per-page cap (used by stack aggregation only) */
   _uncapped?: boolean;
 }
@@ -111,6 +113,7 @@ export async function getAssets(query: AssetsQuery): Promise<AssetData[]> {
   const maxLimit = query._uncapped ? 1000 : 100;
   params.set('limit', String(Math.min(query.limit ?? 40, maxLimit)));
   if (query.burned === true) params.set('burned', 'true');
+  if (query.attr_rarity) params.set('template_data.rarity', query.attr_rarity);
 
   return apiFetch<AssetData[]>(`/assets?${params.toString()}`);
 }

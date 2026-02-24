@@ -37,11 +37,28 @@ async function fetchAssetsPage(account: string, filters: AssetFilters, page: num
     page,
     limit: filters.limit,
     burned: filters.showBurned ? 'true' : undefined,
+    attr_rarity: filters.rarity || undefined,
   });
   const res = await fetch(`/api/assets?${qs}`);
   const json = await res.json();
   if (!json.success) throw new Error(json.error ?? 'Failed to fetch assets');
   return json.data as AssetData[];
+}
+
+async function fetchFacets(
+  account: string,
+  collections: string[],
+  schemas: string[],
+): Promise<{ rarity: Record<string, number>; scanned: number; capped: boolean }> {
+  const qs = buildQueryString({
+    owner: account,
+    collection_name: collections.join(',') || undefined,
+    schema_name: schemas.join(',') || undefined,
+  });
+  const res = await fetch(`/api/facets?${qs}`);
+  const json = await res.json();
+  if (!json.success) return { rarity: {}, scanned: 0, capped: false };
+  return json.data as { rarity: Record<string, number>; scanned: number; capped: boolean };
 }
 
 async function fetchStack(
@@ -250,6 +267,20 @@ export default function WalletPage({ params }: WalletPageProps) {
     staleTime: 60_000,
   });
 
+  // Rarity facets (server-backed counts)
+  const { data: facetsData } = useQuery({
+    queryKey: ['facets', account, filters.collections, filters.schemas],
+    queryFn: () => fetchFacets(account, filters.collections, filters.schemas),
+    staleTime: 60_000,
+  });
+
+  const rarityFacets = useMemo(() => {
+    if (!facetsData?.rarity) return [];
+    return Object.entries(facetsData.rarity)
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [facetsData]);
+
   // Template links (both views)
   const { data: templateLinksRaw = [] } = useQuery({
     queryKey: ['templateLinks'],
@@ -263,35 +294,16 @@ export default function WalletPage({ params }: WalletPageProps) {
   );
 
   // ── Client-side filters applied to loaded assets ──────────────────────────
-  // (media type and rarity can't be pushed to the server)
+  // (media type filter is client-only; rarity is server-filtered via attr_rarity param)
   const displayAssets = useMemo(() => {
-    let result = allAssets;
-    if (filters.mediaType !== 'all') {
-      result = result.filter((a) => {
-        const data = { ...a.immutable_data, ...a.mutable_data, ...a.data, ...(a.template?.immutable_data ?? {}) };
-        if (filters.mediaType === 'video') return !!(data.video || data.backimg_video);
-        if (filters.mediaType === 'image') return !!(data.img || data.image || data.thumbnail) && !(data.video);
-        return true;
-      });
-    }
-    if (filters.rarity) {
-      result = result.filter((a) => {
-        const data = { ...a.template?.immutable_data, ...a.immutable_data, ...a.mutable_data, ...a.data };
-        return String(data.rarity ?? '') === filters.rarity;
-      });
-    }
-    return result;
-  }, [allAssets, filters.mediaType, filters.rarity]);
-
-  // Derive rarity values from all loaded assets
-  const availableRarities = useMemo(() => {
-    const seen = new Set<string>();
-    for (const asset of allAssets) {
-      const data = { ...asset.template?.immutable_data, ...asset.immutable_data, ...asset.mutable_data, ...asset.data };
-      if (data.rarity && typeof data.rarity === 'string') seen.add(data.rarity);
-    }
-    return Array.from(seen).sort();
-  }, [allAssets]);
+    if (filters.mediaType === 'all') return allAssets;
+    return allAssets.filter((a) => {
+      const data = { ...a.immutable_data, ...a.mutable_data, ...a.data, ...(a.template?.immutable_data ?? {}) };
+      if (filters.mediaType === 'video') return !!(data.video || data.backimg_video);
+      if (filters.mediaType === 'image') return !!(data.img || data.image || data.thumbnail) && !(data.video);
+      return true;
+    });
+  }, [allAssets, filters.mediaType]);
 
   const isLoading = viewMode === 'grid' ? assetsLoading : stackLoading;
   const isFetching = viewMode === 'grid' ? assetsFetching : stackFetching;
@@ -396,7 +408,9 @@ export default function WalletPage({ params }: WalletPageProps) {
               onChange={handleFiltersChange}
               collections={collections}
               schemas={schemas}
-              rarityValues={availableRarities}
+              rarityFacets={rarityFacets}
+              rarityScanned={facetsData?.scanned}
+              rarityCapped={facetsData?.capped}
               onClear={handleClearFilters}
             />
           </div>
@@ -418,7 +432,9 @@ export default function WalletPage({ params }: WalletPageProps) {
                 onChange={(f) => { handleFiltersChange(f); }}
                 collections={collections}
                 schemas={schemas}
-                rarityValues={availableRarities}
+                rarityFacets={rarityFacets}
+                rarityScanned={facetsData?.scanned}
+                rarityCapped={facetsData?.capped}
                 onClear={handleClearFilters}
               />
             </div>

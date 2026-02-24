@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
       page: Number(searchParams.get('page') ?? 1),
       limit: Number(searchParams.get('limit') ?? 40),
       burned: searchParams.get('burned') === 'true',
+      attr_rarity: searchParams.get('attr_rarity') ?? undefined,
     });
 
     return NextResponse.json(

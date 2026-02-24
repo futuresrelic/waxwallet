@@ -5,6 +5,32 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-24 (session 3 — M5: server-backed rarity facets)
+
+Added:
+- `app/api/facets/route.ts` — GET endpoint that scans up to 2000 assets in 2 parallel batches and returns `{ rarity: Record<string,number>, scanned: number, capped: boolean }`. Cache: 60s/stale120s.
+- `attr_rarity?: string` field on `AssetsQuery` in `lib/api/atomicassets.ts` — maps to `template_data.rarity=X` on AtomicAssets API call for server-side filtering
+- `fetchFacets()` async function in wallet page — fetches `/api/facets` and returns rarity counts
+- `rarityFacets` query in wallet page (key: `['facets', account, collections, schemas]`, staleTime 60s)
+- `rarityFacets`, `rarityScanned`, `rarityCapped` props on `FilterPanel` (replaced `rarityValues`)
+
+Changed:
+- `app/api/assets/route.ts`: now passes `attr_rarity` query param to `getAssets()`
+- `app/wallet/[account]/page.tsx`: rarity now filtered server-side via `attr_rarity`; client-side rarity derivation (`availableRarities`) removed; `displayAssets` memo simplified (only mediaType filter remains client-side)
+- `components/FilterPanel.tsx`: rarity chips now show counts (`Common (42)`); "beta" label removed; note shown when scan is capped
+
+Removed:
+- `availableRarities` useMemo from wallet page (replaced by server facets)
+- Client-side rarity filter from `displayAssets` (now server-side)
+- `rarityValues?: string[]` prop from FilterPanel
+
+Migration notes:
+- No new env vars required
+- Rarity filter now works correctly across full wallet (not just loaded page)
+- AtomicAssets `template_data.rarity` param filters on template immutable_data; assets with rarity only in their own immutable_data won't match (known limitation of API)
+
+---
+
 ## 2026-02-24 (session 2 — feature refinements)
 
 Added:

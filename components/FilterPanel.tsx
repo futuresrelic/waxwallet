@@ -12,11 +12,13 @@ interface FilterPanelProps {
   collections: Array<{ collection: { collection_name: string; name: string }; assets: number }>;
   schemas: Array<{ schema_name: string }>;
   onClear: () => void;
-  /** Distinct rarity values found in loaded assets — shown as beta filter when non-empty */
-  rarityValues?: string[];
+  /** Server-backed rarity facets with counts — shown when non-empty */
+  rarityFacets?: { value: string; count: number }[];
+  rarityScanned?: number;
+  rarityCapped?: boolean;
 }
 
-export function FilterPanel({ filters, onChange, collections, schemas, onClear, rarityValues = [] }: FilterPanelProps) {
+export function FilterPanel({ filters, onChange, collections, schemas, onClear, rarityFacets = [], rarityScanned, rarityCapped }: FilterPanelProps) {
   const [searchValue, setSearchValue] = useState(filters.search);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -187,30 +189,29 @@ export function FilterPanel({ filters, onChange, collections, schemas, onClear, 
         />
       </div>
 
-      {/* Rarity (beta) — only shown when rarity values are present in loaded assets */}
-      {rarityValues.length > 0 && (
+      {/* Rarity — server-backed facet counts */}
+      {rarityFacets.length > 0 && (
         <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-1.5">
-            <label className="text-xs text-zinc-500 uppercase tracking-wide">Rarity</label>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-400">beta</span>
-          </div>
+          <label className="text-xs text-zinc-500 uppercase tracking-wide">Rarity</label>
           <div className="flex flex-wrap gap-1.5">
-            {rarityValues.map((r) => (
+            {rarityFacets.map(({ value, count }) => (
               <button
-                key={r}
-                onClick={() => onChange({ rarity: filters.rarity === r ? undefined : r })}
+                key={value}
+                onClick={() => onChange({ rarity: filters.rarity === value ? undefined : value, page: 1 })}
                 className={cn(
                   'text-xs px-2.5 py-1 rounded-full border transition-colors',
-                  filters.rarity === r
+                  filters.rarity === value
                     ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
                     : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white',
                 )}
               >
-                {r}
+                {value} <span className="opacity-60">({count})</span>
               </button>
             ))}
           </div>
-          <p className="text-[10px] text-zinc-600">Filters assets loaded so far</p>
+          {rarityCapped && rarityScanned && (
+            <p className="text-[10px] text-zinc-600">Sampled from first {rarityScanned.toLocaleString()} assets</p>
+          )}
         </div>
       )}
 
