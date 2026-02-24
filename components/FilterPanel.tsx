@@ -16,9 +16,11 @@ interface FilterPanelProps {
   rarityFacets?: { value: string; count: number }[];
   rarityScanned?: number;
   rarityCapped?: boolean;
+  /** Schema asset counts from facets scan — shown next to schema chips */
+  schemaCounts?: Record<string, number>;
 }
 
-export function FilterPanel({ filters, onChange, collections, schemas, onClear, rarityFacets = [], rarityScanned, rarityCapped }: FilterPanelProps) {
+export function FilterPanel({ filters, onChange, collections, schemas, onClear, rarityFacets = [], rarityScanned, rarityCapped, schemaCounts }: FilterPanelProps) {
   const [searchValue, setSearchValue] = useState(filters.search);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -161,20 +163,26 @@ export function FilterPanel({ filters, onChange, collections, schemas, onClear, 
         <div className="flex flex-col gap-1.5">
           <label className="text-xs text-zinc-500 uppercase tracking-wide">Schemas</label>
           <div className="flex flex-wrap gap-1.5">
-            {schemas.map(({ schema_name }) => (
-              <button
-                key={schema_name}
-                onClick={() => toggleSchema(schema_name)}
-                className={cn(
-                  'text-xs px-2.5 py-1 rounded-full border transition-colors',
-                  filters.schemas.includes(schema_name)
-                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
-                    : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white',
-                )}
-              >
-                {schema_name}
-              </button>
-            ))}
+            {schemas.map(({ schema_name }) => {
+              const count = schemaCounts?.[schema_name];
+              return (
+                <button
+                  key={schema_name}
+                  onClick={() => toggleSchema(schema_name)}
+                  className={cn(
+                    'text-xs px-2.5 py-1 rounded-full border transition-colors',
+                    filters.schemas.includes(schema_name)
+                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                      : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white',
+                  )}
+                >
+                  {schema_name}
+                  {count !== undefined && (
+                    <span className="opacity-60 ml-1">({count})</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

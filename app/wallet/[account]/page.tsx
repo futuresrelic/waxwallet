@@ -49,7 +49,7 @@ async function fetchFacets(
   account: string,
   collections: string[],
   schemas: string[],
-): Promise<{ rarity: Record<string, number>; scanned: number; capped: boolean }> {
+): Promise<{ rarity: Record<string, number>; schemas: Record<string, number>; scanned: number; capped: boolean }> {
   const qs = buildQueryString({
     owner: account,
     collection_name: collections.join(',') || undefined,
@@ -57,8 +57,8 @@ async function fetchFacets(
   });
   const res = await fetch(`/api/facets?${qs}`);
   const json = await res.json();
-  if (!json.success) return { rarity: {}, scanned: 0, capped: false };
-  return json.data as { rarity: Record<string, number>; scanned: number; capped: boolean };
+  if (!json.success) return { rarity: {}, schemas: {}, scanned: 0, capped: false };
+  return json.data as { rarity: Record<string, number>; schemas: Record<string, number>; scanned: number; capped: boolean };
 }
 
 async function fetchStack(
@@ -411,6 +411,7 @@ export default function WalletPage({ params }: WalletPageProps) {
               rarityFacets={rarityFacets}
               rarityScanned={facetsData?.scanned}
               rarityCapped={facetsData?.capped}
+              schemaCounts={facetsData?.schemas}
               onClear={handleClearFilters}
             />
           </div>
@@ -435,6 +436,7 @@ export default function WalletPage({ params }: WalletPageProps) {
                 rarityFacets={rarityFacets}
                 rarityScanned={facetsData?.scanned}
                 rarityCapped={facetsData?.capped}
+                schemaCounts={facetsData?.schemas}
                 onClear={handleClearFilters}
               />
             </div>

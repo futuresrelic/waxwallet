@@ -1,6 +1,6 @@
 // ─── Public: Facets ───────────────────────────────────────────────────────────
-// Scans up to 2000 assets and returns attribute facet counts (rarity, etc.)
-// Used by the wallet page to show rarity filter values with counts.
+// Scans up to 2000 assets and returns attribute facet counts (rarity, schemas).
+// Used by the wallet page to show rarity and schema filter values with counts.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssets } from '@/lib/api/atomicassets';
@@ -41,8 +41,9 @@ export async function GET(req: NextRequest) {
     // capped = true if both batches were full (more assets may exist beyond scan window)
     const capped = batch1.length === BATCH_SIZE && batch2.length === BATCH_SIZE;
 
-    // Count rarity values across all scanned assets
+    // Count rarity values and schema names across all scanned assets
     const rarity: Record<string, number> = {};
+    const schemas: Record<string, number> = {};
     for (const asset of all) {
       const data = {
         ...asset.template?.immutable_data,
@@ -54,10 +55,14 @@ export async function GET(req: NextRequest) {
       if (r && typeof r === 'string') {
         rarity[r] = (rarity[r] ?? 0) + 1;
       }
+      const s = asset.schema?.schema_name;
+      if (s) {
+        schemas[s] = (schemas[s] ?? 0) + 1;
+      }
     }
 
     return NextResponse.json(
-      { success: true, data: { rarity, scanned, capped } },
+      { success: true, data: { rarity, schemas, scanned, capped } },
       { headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=120' } },
     );
   } catch (err) {

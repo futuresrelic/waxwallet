@@ -5,6 +5,23 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-24 (session 3 — M6: schema facet counts)
+
+Added:
+- `schemas: Record<string, number>` to `/api/facets` response — schema asset counts from the 2000-asset scan
+- `schemaCounts?: Record<string, number>` prop on `FilterPanel` — shows counts on schema chips
+
+Changed:
+- `app/api/facets/route.ts`: counts `asset.schema.schema_name` per asset alongside rarity; returns `schemas` map in response
+- `components/FilterPanel.tsx`: schema chips now render `{name} ({count})` when count is available from facets
+- `app/wallet/[account]/page.tsx`: passes `schemaCounts={facetsData?.schemas}` to FilterPanel
+
+Migration notes:
+- No new endpoints or env vars
+- Facets response shape changed: added `schemas` key; backward-compatible (new key)
+
+---
+
 ## 2026-02-24 (session 3 — M5: server-backed rarity facets)
 
 Added:
