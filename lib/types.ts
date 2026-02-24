@@ -264,3 +264,57 @@ export function getAssetName(asset: AssetData): string {
   if (merged.name && typeof merged.name === 'string') return merged.name;
   return `Asset #${asset.asset_id}`;
 }
+
+// ─── Media Gallery ────────────────────────────────────────────────────────────
+
+export interface MediaItem {
+  url: string;
+  type: 'image' | 'video';
+  /** Source field name, e.g. "img", "video", "backimg_video" */
+  field: string;
+}
+
+/** Collect all distinct media items (images + videos) from an asset's data fields. */
+export function collectAllMedia(asset: AssetData): MediaItem[] {
+  const items: MediaItem[] = [];
+  const seen = new Set<string>();
+
+  const merged = {
+    ...asset.template?.immutable_data,
+    ...asset.immutable_data,
+    ...asset.mutable_data,
+    ...asset.data,
+  };
+
+  // Prioritised video fields first so videos appear before their poster images
+  const videoFields = ['video', 'backimg_video'];
+  const imageFields = ['img', 'image', 'thumbnail', 'preview', 'back_img', 'backimg'];
+  const knownFields = new Set([...videoFields, ...imageFields]);
+
+  const addItem = (field: string, type: 'image' | 'video') => {
+    const raw = merged[field];
+    if (!raw || typeof raw !== 'string') return;
+    const url = resolveMediaUrl(raw);
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    items.push({ url, type, field });
+  };
+
+  for (const f of videoFields) addItem(f, 'video');
+  for (const f of imageFields) addItem(f, 'image');
+
+  // Scan remaining fields for any IPFS hash or HTTP URL not yet captured
+  for (const [field, val] of Object.entries(merged)) {
+    if (knownFields.has(field) || typeof val !== 'string') continue;
+    const url = resolveMediaUrl(val);
+    if (!url || seen.has(url)) continue;
+    const isVideo =
+      field.toLowerCase().includes('video') ||
+      val.toLowerCase().endsWith('.mp4') ||
+      val.toLowerCase().endsWith('.webm');
+    seen.add(url);
+    items.push({ url, type: isVideo ? 'video' : 'image', field });
+  }
+
+  return items;
+}

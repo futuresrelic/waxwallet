@@ -4,12 +4,12 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Copy, Check, Flame } from 'lucide-react';
-import { MediaViewer } from '@/components/MediaViewer';
+import { MediaGallery } from '@/components/MediaGallery';
 import { AttributeList, RawJson } from '@/components/AttributeList';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageSpinner } from '@/components/ui/Spinner';
-import { getAssetMedia, getAssetName, type AssetData } from '@/lib/types';
+import { collectAllMedia, getAssetName, type AssetData } from '@/lib/types';
 import { formatMint, formatTimestamp } from '@/lib/utils';
 import { useState } from 'react';
 
@@ -59,7 +59,7 @@ export default function AssetDetailPage({ params }: { params: Promise<{ assetId:
     );
   }
 
-  const { url, type } = getAssetMedia(asset);
+  const mediaItems = collectAllMedia(asset);
   const name = getAssetName(asset);
   const mint = formatMint(asset.template_mint);
   const isBurned = !!asset.burned_by_account;
@@ -82,12 +82,12 @@ export default function AssetDetailPage({ params }: { params: Promise<{ assetId:
       </button>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* Left: Media */}
+        {/* Left: Media gallery */}
         <div className="flex flex-col gap-4">
-          <div className="relative rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 aspect-square">
-            <MediaViewer url={url} type={type} name={name} fill />
+          <div className="relative">
+            <MediaGallery items={mediaItems} name={name} />
             {isBurned && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+              <div className="absolute inset-0 rounded-2xl flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
                 <div className="flex flex-col items-center gap-2">
                   <Flame className="w-10 h-10 text-red-400" />
                   <span className="text-red-400 font-bold">Burned</span>
