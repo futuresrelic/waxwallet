@@ -1,6 +1,8 @@
 'use client';
+// Route-level error boundary. Rendered within the app layout, so
+// Tailwind CSS is available. Must NOT import anything that uses
+// React context (providers, hooks that call useContext, wallet libs, etc.)
 import { useEffect } from 'react';
-import { Button } from '@/components/ui/Button';
 
 export default function Error({
   error,
@@ -14,12 +16,37 @@ export default function Error({
   }, [error]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center">
-      <h2 className="text-xl font-bold text-white">Something went wrong</h2>
-      <p className="text-sm text-zinc-400 max-w-md">{error?.message ?? 'An unexpected error occurred.'}</p>
-      <Button onClick={reset} variant="secondary">
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '60vh',
+        gap: '1rem',
+        textAlign: 'center',
+        padding: '2rem',
+      }}
+    >
+      <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fafafa' }}>Something went wrong</h2>
+      <p style={{ fontSize: '0.875rem', color: '#71717a', maxWidth: '28rem' }}>
+        {error?.message ?? 'An unexpected error occurred.'}
+      </p>
+      <button
+        onClick={reset}
+        style={{
+          padding: '0.5rem 1.25rem',
+          background: '#27272a',
+          color: '#fafafa',
+          border: '1px solid #3f3f46',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontSize: '0.875rem',
+          fontWeight: 500,
+        }}
+      >
         Try again
-      </Button>
+      </button>
     </div>
   );
 }
