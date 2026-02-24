@@ -1,9 +1,10 @@
 'use client';
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent } from 'react';
 import {
   Shield, RefreshCw, Save, Plus, Trash2,
   CheckCircle, XCircle, Loader2, LogOut,
   ExternalLink, ToggleLeft, ToggleRight,
+  Download, Upload, Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -64,6 +65,9 @@ export default function AdminPage() {
   const [newLink, setNewLink] = useState({ template_id: '', label: 'View', url: '', enabled: true });
   const [linkMsg, setLinkMsg] = useState('');
   const [linkSaving, setLinkSaving] = useState(false);
+  const [linkSearch, setLinkSearch] = useState('');
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   // Check if already authed by trying to load config
   useEffect(() => {
@@ -195,6 +199,44 @@ export default function AdminPage() {
   const handleDeleteLink = async (id: string) => {
     const res = await fetch(`/api/admin/template-links?id=${id}`, { method: 'DELETE' });
     if (res.ok) setTemplateLinks((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  const handleExport = () => {
+    const blob = new Blob([JSON.stringify(templateLinks, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `template-links-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = async (file: File) => {
+    setImporting(true);
+    setLinkMsg('');
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text) as Array<{ template_id: string; label: string; url: string; enabled?: boolean }>;
+      if (!Array.isArray(data)) { setLinkMsg('Error: JSON must be an array'); return; }
+      let added = 0;
+      for (const item of data) {
+        if (!item.template_id || !item.url) continue;
+        const res = await fetch('/api/admin/template-links', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ template_id: item.template_id, label: item.label ?? 'View', url: item.url, enabled: item.enabled ?? true }),
+        });
+        const json = await res.json();
+        if (json.success) { setTemplateLinks((prev) => [...prev, json.data]); added++; }
+      }
+      setLinkMsg(`Imported ${added} link${added !== 1 ? 's' : ''}`);
+    } catch {
+      setLinkMsg('Error: invalid JSON file');
+    } finally {
+      setImporting(false);
+      if (importInputRef.current) importInputRef.current.value = '';
+      setTimeout(() => setLinkMsg(''), 4000);
+    }
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -408,7 +450,7 @@ export default function AdminPage() {
           <div>
             <h2 className="text-lg font-semibold text-white">Template Links</h2>
             <p className="text-xs text-zinc-500 mt-0.5">
-              Add a URL per template_id. A small link button appears on matching asset cards.
+              Add URL buttons per template_id. Multiple links per template are supported.
             </p>
           </div>
           <Badge variant="amber">{templateLinks.length} link{templateLinks.length !== 1 ? 's' : ''}</Badge>
@@ -456,10 +498,58 @@ export default function AdminPage() {
           </div>
         </div>
 
+        {/* Search + export/import toolbar */}
+        {templateLinks.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-40">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search by template ID or label…"
+                value={linkSearch}
+                onChange={(e) => setLinkSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-sm bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              />
+            </div>
+            <Button variant="secondary" size="sm" onClick={handleExport} title="Export all links as JSON">
+              <Download className="w-3.5 h-3.5" />
+              Export
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => importInputRef.current?.click()}
+              disabled={importing}
+              title="Import links from JSON file"
+            >
+              {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+              Import
+            </Button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImport(f); }}
+            />
+          </div>
+        )}
+
         {/* Existing links table */}
-        {templateLinks.length > 0 ? (
+        {templateLinks.length > 0 ? (() => {
+          const filtered = linkSearch.trim()
+            ? templateLinks.filter(
+                (l) =>
+                  l.template_id.includes(linkSearch.trim()) ||
+                  l.label.toLowerCase().includes(linkSearch.toLowerCase().trim()),
+              )
+            : templateLinks;
+          return (
           <div className="flex flex-col gap-2">
-            {templateLinks.map((link) => (
+            {filtered.length === 0 && (
+              <p className="text-sm text-zinc-600 text-center py-2">No links match your search.</p>
+            )}
+            {filtered.map((link) => (
               <div
                 key={link.id}
                 className="flex items-center gap-3 bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3"
@@ -500,7 +590,8 @@ export default function AdminPage() {
               </div>
             ))}
           </div>
-        ) : (
+          );
+        })() : (
           <p className="text-sm text-zinc-600 text-center py-4">No template links configured yet.</p>
         )}
 

@@ -5,6 +5,31 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-24 (session 3 — M9: admin template links UX)
+
+Added:
+- Multiple links per template_id — `templateLinksMap` is now `Map<string, TemplateLink[]>`
+- Admin page: search input filters template links by template_id or label
+- Admin page: Export button downloads `template-links-YYYY-MM-DD.json` (client-side blob)
+- Admin page: Import button reads JSON file → POST each link to admin API with progress message
+- `importInputRef` + hidden `<input type="file">` for import flow
+- `handleExport()` and `handleImport(file)` functions in admin page
+
+Changed:
+- `components/AssetCard.tsx`: `templateLink?: TemplateLink` → `templateLinks?: TemplateLink[]`; renders multiple link rows
+- `components/TemplateCard.tsx`: same change as AssetCard
+- `components/AssetGrid.tsx`: `templateLinksMap` type changed to `Map<string, TemplateLink[]>`
+- `components/TemplateGrid.tsx`: same type change + passes `templateLinks` (array) to TemplateCard
+- `app/wallet/[account]/page.tsx`: `templateLinksMap` memo groups by template_id into arrays
+- `app/admin/page.tsx`: added imports for Search/Download/Upload/useRef; link list now filtered by search term
+
+Migration notes:
+- No API changes; store unchanged (links still keyed by `id`)
+- Old single-link-per-template behavior: if only 1 link, card shows 1 link. If multiple, shows all.
+- The public `/api/template-links` returns flat array; wallet page groups them client-side
+
+---
+
 ## 2026-02-24 (session 3 — M7: progressive stack view)
 
 Added:

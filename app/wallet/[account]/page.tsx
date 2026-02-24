@@ -291,10 +291,16 @@ export default function WalletPage({ params }: WalletPageProps) {
     staleTime: 300_000,
   });
 
-  const templateLinksMap = useMemo(
-    () => new Map<string, TemplateLink>(templateLinksRaw.map((l) => [l.template_id, l])),
-    [templateLinksRaw],
-  );
+  // Group template links by template_id to support multiple links per template
+  const templateLinksMap = useMemo(() => {
+    const map = new Map<string, TemplateLink[]>();
+    for (const link of templateLinksRaw) {
+      const existing = map.get(link.template_id) ?? [];
+      existing.push(link);
+      map.set(link.template_id, existing);
+    }
+    return map;
+  }, [templateLinksRaw]);
 
   // ── Client-side filters applied to loaded assets ──────────────────────────
   // (media type filter is client-only; rarity is server-filtered via attr_rarity param)

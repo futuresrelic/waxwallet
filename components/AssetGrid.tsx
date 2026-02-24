@@ -12,8 +12,8 @@ interface AssetGridProps {
   hasMore: boolean;
   isFetchingMore: boolean;
   onLoadMore: () => void;
-  /** template_id → TemplateLink map for link decoration (optional) */
-  templateLinksMap?: Map<string, TemplateLink>;
+  /** template_id → TemplateLink[] map for link decoration (optional) */
+  templateLinksMap?: Map<string, TemplateLink[]>;
 }
 
 export function AssetGrid({
@@ -74,7 +74,7 @@ export function AssetGrid({
           <AssetCard
             key={asset.asset_id}
             asset={asset}
-            templateLink={
+            templateLinks={
               templateLinksMap && asset.template?.template_id
                 ? templateLinksMap.get(asset.template.template_id)
                 : undefined

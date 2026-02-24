@@ -14,7 +14,7 @@ interface TemplateGridProps {
   sort: StackSortOption;
   onPageChange: (page: number) => void;
   onSortChange: (sort: StackSortOption) => void;
-  templateLinksMap: Map<string, TemplateLink>;
+  templateLinksMap: Map<string, TemplateLink[]>;
   /** Called when user requests a full wallet scan (scan_pages=10) */
   onLoadAll?: () => void;
   /** Whether a full-scan refetch is currently loading */
@@ -117,7 +117,7 @@ export function TemplateGrid({
           <TemplateCard
             key={stack.template_id}
             stack={stack}
-            templateLink={templateLinksMap.get(stack.template_id)}
+            templateLinks={templateLinksMap.get(stack.template_id)}
           />
         ))}
       </div>

@@ -7,11 +7,12 @@ import type { TemplateStack, TemplateLink } from '@/lib/types';
 
 interface TemplateCardProps {
   stack: TemplateStack;
-  templateLink?: TemplateLink;
+  /** Admin-configured template links for this template_id (optional). */
+  templateLinks?: TemplateLink[];
   className?: string;
 }
 
-export function TemplateCard({ stack, templateLink, className }: TemplateCardProps) {
+export function TemplateCard({ stack, templateLinks, className }: TemplateCardProps) {
   const supplyLabel = stack.max_supply === '0' ? '∞' : stack.max_supply;
 
   return (
@@ -51,18 +52,23 @@ export function TemplateCard({ stack, templateLink, className }: TemplateCardPro
           <Badge variant="amber">{supplyLabel} supply</Badge>
         </div>
 
-        {/* Template link – shows only when admin has configured one */}
-        {templateLink && (
-          <a
-            href={templateLink.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 hover:underline"
-          >
-            <ExternalLink className="w-3 h-3 shrink-0" />
-            {templateLink.label || 'View'}
-          </a>
+        {/* Template links – admin-configured, open in new tab */}
+        {templateLinks && templateLinks.length > 0 && (
+          <div className="flex flex-col gap-1 mt-2">
+            {templateLinks.map((link) => (
+              <a
+                key={link.id}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 hover:underline"
+              >
+                <ExternalLink className="w-3 h-3 shrink-0" />
+                {link.label || 'View'}
+              </a>
+            ))}
+          </div>
         )}
       </div>
     </div>

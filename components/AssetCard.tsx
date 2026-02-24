@@ -8,12 +8,12 @@ import { getAssetMedia, getAssetName, type AssetData, type TemplateLink } from '
 
 interface AssetCardProps {
   asset: AssetData;
-  /** Template link configured by admin for this asset's template_id (optional). */
-  templateLink?: TemplateLink;
+  /** Admin-configured template links for this asset's template_id (optional). */
+  templateLinks?: TemplateLink[];
   className?: string;
 }
 
-export function AssetCard({ asset, templateLink, className }: AssetCardProps) {
+export function AssetCard({ asset, templateLinks, className }: AssetCardProps) {
   const { url, type } = getAssetMedia(asset);
   const name = getAssetName(asset);
   const mint = formatMint(asset.template_mint);
@@ -60,18 +60,23 @@ export function AssetCard({ asset, templateLink, className }: AssetCardProps) {
             )}
           </div>
 
-          {/* Template link – admin-configured, opens in new tab */}
-          {templateLink && (
-            <a
-              href={templateLink.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="mt-1.5 flex items-center gap-1 text-xs font-medium text-amber-400 hover:text-amber-300 hover:underline"
-            >
-              <ExternalLink className="w-3 h-3 shrink-0" />
-              {templateLink.label || 'View'}
-            </a>
+          {/* Template links – admin-configured, open in new tab */}
+          {templateLinks && templateLinks.length > 0 && (
+            <div className="flex flex-col gap-1 mt-1.5">
+              {templateLinks.map((link) => (
+                <a
+                  key={link.id}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center gap-1 text-xs font-medium text-amber-400 hover:text-amber-300 hover:underline"
+                >
+                  <ExternalLink className="w-3 h-3 shrink-0" />
+                  {link.label || 'View'}
+                </a>
+              ))}
+            </div>
           )}
         </div>
       </div>
