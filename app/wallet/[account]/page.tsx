@@ -1,18 +1,30 @@
 'use client';
-import { use, useCallback, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Copy, Check, ExternalLink, SlidersHorizontal, X } from 'lucide-react';
+import { Copy, Check, ExternalLink, SlidersHorizontal, X, LayoutGrid, Layers } from 'lucide-react';
 import { AssetGrid } from '@/components/AssetGrid';
+import { TemplateGrid } from '@/components/TemplateGrid';
 import { FilterPanel } from '@/components/FilterPanel';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
-import { DEFAULT_FILTERS, type AssetFilters, type AssetData } from '@/lib/types';
+import {
+  DEFAULT_FILTERS,
+  STACK_SORT_OPTIONS,
+  type AssetFilters,
+  type AssetData,
+  type TemplateStack,
+  type TemplateLink,
+  type StackMeta,
+  type StackSortOption,
+} from '@/lib/types';
 import { buildQueryString } from '@/lib/utils';
 
 interface WalletPageProps {
   params: Promise<{ account: string }>;
 }
+
+// ─── Fetchers ─────────────────────────────────────────────────────────────────
 
 async function fetchAssets(account: string, filters: AssetFilters): Promise<AssetData[]> {
   const qs = buildQueryString({
@@ -30,6 +42,26 @@ async function fetchAssets(account: string, filters: AssetFilters): Promise<Asse
   const json = await res.json();
   if (!json.success) throw new Error(json.error ?? 'Failed to fetch assets');
   return json.data as AssetData[];
+}
+
+async function fetchStack(
+  account: string,
+  filters: AssetFilters,
+  sort: StackSortOption,
+  page: number,
+): Promise<{ data: TemplateStack[]; meta: StackMeta }> {
+  const qs = buildQueryString({
+    owner: account,
+    collection_name: filters.collections.join(',') || undefined,
+    schema_name: filters.schemas.join(',') || undefined,
+    sort,
+    page,
+    limit: 20,
+  });
+  const res = await fetch(`/api/stack?${qs}`);
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error ?? 'Failed to fetch template stacks');
+  return { data: json.data as TemplateStack[], meta: json.meta as StackMeta };
 }
 
 async function fetchCollections(account: string) {
@@ -58,7 +90,14 @@ async function fetchSchemas(collectionNames: string[]) {
   });
 }
 
-// Parse filters from URL search params
+async function fetchTemplateLinks(): Promise<TemplateLink[]> {
+  const res = await fetch('/api/template-links');
+  const json = await res.json();
+  return (json.data ?? []) as TemplateLink[];
+}
+
+// ─── URL parsing helpers ──────────────────────────────────────────────────────
+
 function parseFiltersFromSearch(sp: URLSearchParams): Partial<AssetFilters> {
   const out: Partial<AssetFilters> = {};
   const search = sp.get('q');
@@ -80,8 +119,12 @@ function parseFiltersFromSearch(sp: URLSearchParams): Partial<AssetFilters> {
   return out;
 }
 
-// Build URL search params from filters
-function filtersToSearch(filters: AssetFilters): URLSearchParams {
+function filtersToSearch(
+  filters: AssetFilters,
+  viewMode: 'grid' | 'stack',
+  stackSort: StackSortOption,
+  stackPage: number,
+): URLSearchParams {
   const sp = new URLSearchParams();
   if (filters.search) sp.set('q', filters.search);
   if (filters.collections.length) sp.set('c', filters.collections.join(','));
@@ -91,8 +134,13 @@ function filtersToSearch(filters: AssetFilters): URLSearchParams {
   if (filters.page > 1) sp.set('page', String(filters.page));
   if (filters.mediaType !== 'all') sp.set('media', filters.mediaType);
   if (filters.showBurned) sp.set('burned', 'true');
+  if (viewMode === 'stack') sp.set('view', 'stack');
+  if (viewMode === 'stack' && stackSort !== 'count:desc') sp.set('ssort', stackSort);
+  if (viewMode === 'stack' && stackPage > 1) sp.set('spage', String(stackPage));
   return sp;
 }
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function WalletPage({ params }: WalletPageProps) {
   const { account } = use(params);
@@ -104,16 +152,24 @@ export default function WalletPage({ params }: WalletPageProps) {
     ...DEFAULT_FILTERS,
     ...parseFiltersFromSearch(searchParams),
   }));
+  const [viewMode, setViewMode] = useState<'grid' | 'stack'>(() =>
+    searchParams.get('view') === 'stack' ? 'stack' : 'grid',
+  );
+  const [stackSort, setStackSort] = useState<StackSortOption>(() => {
+    const s = searchParams.get('ssort');
+    return STACK_SORT_OPTIONS.some((o) => o.value === s) ? (s as StackSortOption) : 'count:desc';
+  });
+  const [stackPage, setStackPage] = useState(() => Math.max(1, Number(searchParams.get('spage') ?? 1)));
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Sync filters to URL
+  // Sync all state to URL
   useEffect(() => {
-    const sp = filtersToSearch(filters);
+    const sp = filtersToSearch(filters, viewMode, stackSort, stackPage);
     const qs = sp.toString();
     const newUrl = qs ? `${pathname}?${qs}` : pathname;
     router.replace(newUrl, { scroll: false });
-  }, [filters, pathname, router]);
+  }, [filters, viewMode, stackSort, stackPage, pathname, router]);
 
   const handleFiltersChange = useCallback((partial: Partial<AssetFilters>) => {
     setFilters((prev) => ({ ...prev, ...partial }));
@@ -123,14 +179,24 @@ export default function WalletPage({ params }: WalletPageProps) {
     setFilters({ ...DEFAULT_FILTERS });
   }, []);
 
-  // Fetch collections for filter panel
+  const handleViewToggle = useCallback(
+    (mode: 'grid' | 'stack') => {
+      setViewMode(mode);
+      // Reset pagination for the new view
+      if (mode === 'grid') setFilters((f) => ({ ...f, page: 1 }));
+      else setStackPage(1);
+    },
+    [],
+  );
+
+  // ── Data queries ────────────────────────────────────────────────────────────
+
   const { data: collections = [] } = useQuery({
     queryKey: ['collections', account],
     queryFn: () => fetchCollections(account),
     staleTime: 60_000,
   });
 
-  // Fetch schemas based on selected collections
   const { data: schemas = [] } = useQuery({
     queryKey: ['schemas', filters.collections],
     queryFn: () => fetchSchemas(filters.collections),
@@ -138,19 +204,45 @@ export default function WalletPage({ params }: WalletPageProps) {
     staleTime: 60_000,
   });
 
-  // Fetch assets
+  // Grid-view assets
   const {
     data: assets = [],
-    isLoading,
-    error,
-    isFetching,
+    isLoading: assetsLoading,
+    error: assetsError,
+    isFetching: assetsFetching,
   } = useQuery({
     queryKey: ['assets', account, filters],
     queryFn: () => fetchAssets(account, filters),
+    enabled: viewMode === 'grid',
     staleTime: 15_000,
   });
 
-  // Filter by media type client-side (API doesn't support this filter directly)
+  // Stack-view aggregated templates
+  const {
+    data: stackResult,
+    isLoading: stackLoading,
+    error: stackError,
+    isFetching: stackFetching,
+  } = useQuery({
+    queryKey: ['stack', account, filters.collections, filters.schemas, stackSort, stackPage],
+    queryFn: () => fetchStack(account, filters, stackSort, stackPage),
+    enabled: viewMode === 'stack',
+    staleTime: 60_000,
+  });
+
+  // Template links (both views)
+  const { data: templateLinksRaw = [] } = useQuery({
+    queryKey: ['templateLinks'],
+    queryFn: fetchTemplateLinks,
+    staleTime: 300_000, // 5 min
+  });
+
+  const templateLinksMap = useMemo(
+    () => new Map<string, TemplateLink>(templateLinksRaw.map((l) => [l.template_id, l])),
+    [templateLinksRaw],
+  );
+
+  // Client-side media filter (API doesn't support this directly)
   const displayAssets =
     filters.mediaType === 'all'
       ? assets
@@ -162,7 +254,9 @@ export default function WalletPage({ params }: WalletPageProps) {
         });
 
   const hasMore = assets.length >= filters.limit;
-  const totalShown = (filters.page - 1) * filters.limit + displayAssets.length;
+
+  const isLoading = viewMode === 'grid' ? assetsLoading : stackLoading;
+  const isFetching = viewMode === 'grid' ? assetsFetching : stackFetching;
 
   const copyAccount = () => {
     navigator.clipboard.writeText(account);
@@ -189,13 +283,43 @@ export default function WalletPage({ params }: WalletPageProps) {
             ) : (
               <>
                 {isFetching && <Spinner size="sm" className="inline mr-1.5" />}
-                Showing {displayAssets.length} assets · Page {filters.page}
+                {viewMode === 'grid'
+                  ? `Showing ${displayAssets.length} assets · Page ${filters.page}`
+                  : `${stackResult?.meta.total ?? 0} unique templates`}
               </>
             )}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* View mode toggle */}
+          <div className="flex items-center rounded-lg border border-zinc-700 overflow-hidden">
+            <button
+              onClick={() => handleViewToggle('grid')}
+              title="Asset grid view"
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${
+                viewMode === 'grid'
+                  ? 'bg-amber-500/20 text-amber-400'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+              <span className="hidden sm:inline">Assets</span>
+            </button>
+            <button
+              onClick={() => handleViewToggle('stack')}
+              title="Stack by template"
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors border-l border-zinc-700 ${
+                viewMode === 'stack'
+                  ? 'bg-amber-500/20 text-amber-400'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              <span className="hidden sm:inline">Templates</span>
+            </button>
+          </div>
+
           <Button
             variant="secondary"
             size="sm"
@@ -205,22 +329,11 @@ export default function WalletPage({ params }: WalletPageProps) {
             <SlidersHorizontal className="w-4 h-4" />
             Filters
           </Button>
-          <a
-            href={`https://wax.atomichub.io/profile/${account}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden"
-          >
-            <Button variant="ghost" size="sm">
-              <ExternalLink className="w-3.5 h-3.5" />
-              AtomicHub
-            </Button>
-          </a>
         </div>
       </div>
 
-      {/* Collection chips */}
-      {collections.length > 0 && filters.collections.length === 0 && (
+      {/* Collection quick-chips (only in grid view, no active collection filters) */}
+      {viewMode === 'grid' && collections.length > 0 && filters.collections.length === 0 && (
         <div className="flex gap-2 flex-wrap">
           {collections.slice(0, 8).map(({ collection, assets: count }) => (
             <button
@@ -237,7 +350,7 @@ export default function WalletPage({ params }: WalletPageProps) {
 
       {/* Layout */}
       <div className="flex gap-6">
-        {/* Filter sidebar - desktop */}
+        {/* Filter sidebar – desktop */}
         <aside className="hidden md:block w-64 shrink-0">
           <div className="sticky top-20">
             <FilterPanel
@@ -250,7 +363,7 @@ export default function WalletPage({ params }: WalletPageProps) {
           </div>
         </aside>
 
-        {/* Mobile filter panel */}
+        {/* Mobile filter drawer */}
         {showFilterPanel && (
           <div className="fixed inset-0 z-40 md:hidden">
             <div className="absolute inset-0 bg-black/60" onClick={() => setShowFilterPanel(false)} />
@@ -272,16 +385,31 @@ export default function WalletPage({ params }: WalletPageProps) {
           </div>
         )}
 
-        {/* Asset grid */}
+        {/* Main content area */}
         <div className="flex-1 min-w-0">
-          <AssetGrid
-            assets={displayAssets}
-            isLoading={isLoading}
-            error={error instanceof Error ? error.message : null}
-            filters={filters}
-            onPageChange={(p) => handleFiltersChange({ page: p })}
-            hasMore={hasMore}
-          />
+          {viewMode === 'grid' ? (
+            <AssetGrid
+              assets={displayAssets}
+              isLoading={assetsLoading}
+              error={assetsError instanceof Error ? assetsError.message : null}
+              filters={filters}
+              onPageChange={(p) => handleFiltersChange({ page: p })}
+              hasMore={hasMore}
+              templateLinksMap={templateLinksMap}
+            />
+          ) : (
+            <TemplateGrid
+              stacks={stackResult?.data ?? []}
+              isLoading={stackLoading}
+              error={stackError instanceof Error ? stackError.message : null}
+              meta={stackResult?.meta ?? null}
+              page={stackPage}
+              sort={stackSort}
+              onPageChange={setStackPage}
+              onSortChange={(s) => { setStackSort(s); setStackPage(1); }}
+              templateLinksMap={templateLinksMap}
+            />
+          )}
         </div>
       </div>
     </div>

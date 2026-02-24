@@ -3,7 +3,7 @@ import { AssetCard } from './AssetCard';
 import { PageSpinner } from './ui/Spinner';
 import { Button } from './ui/Button';
 import { ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
-import type { AssetData, AssetFilters } from '@/lib/types';
+import type { AssetData, AssetFilters, TemplateLink } from '@/lib/types';
 
 interface AssetGridProps {
   assets: AssetData[];
@@ -12,9 +12,19 @@ interface AssetGridProps {
   filters: AssetFilters;
   onPageChange: (page: number) => void;
   hasMore: boolean;
+  /** template_id → TemplateLink map for link decoration (optional) */
+  templateLinksMap?: Map<string, TemplateLink>;
 }
 
-export function AssetGrid({ assets, isLoading, error, filters, onPageChange, hasMore }: AssetGridProps) {
+export function AssetGrid({
+  assets,
+  isLoading,
+  error,
+  filters,
+  onPageChange,
+  hasMore,
+  templateLinksMap,
+}: AssetGridProps) {
   if (isLoading) return <PageSpinner />;
 
   if (error) {
@@ -43,7 +53,15 @@ export function AssetGrid({ assets, isLoading, error, filters, onPageChange, has
       {/* Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
         {assets.map((asset) => (
-          <AssetCard key={asset.asset_id} asset={asset} />
+          <AssetCard
+            key={asset.asset_id}
+            asset={asset}
+            templateLink={
+              templateLinksMap && asset.template?.template_id
+                ? templateLinksMap.get(asset.template.template_id)
+                : undefined
+            }
+          />
         ))}
       </div>
 

@@ -67,6 +67,8 @@ export interface AssetsQuery {
   page?: number;
   limit?: number;
   burned?: boolean;
+  /** Internal: bypass 100-per-page cap (used by stack aggregation only) */
+  _uncapped?: boolean;
 }
 
 export async function getAssets(query: AssetsQuery): Promise<AssetData[]> {
@@ -82,7 +84,8 @@ export async function getAssets(query: AssetsQuery): Promise<AssetData[]> {
   params.set('order', sortFull[1] ?? 'desc');
 
   params.set('page', String(query.page ?? 1));
-  params.set('limit', String(Math.min(query.limit ?? 40, 100)));
+  const maxLimit = query._uncapped ? 1000 : 100;
+  params.set('limit', String(Math.min(query.limit ?? 40, maxLimit)));
   if (query.burned === true) params.set('burned', 'true');
 
   return apiFetch<AssetData[]>(`/assets?${params.toString()}`);

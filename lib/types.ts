@@ -134,6 +134,63 @@ export const DEFAULT_FILTERS: AssetFilters = {
   limit: 40,
 };
 
+// ─── Template Stacking ────────────────────────────────────────────────────────
+
+export interface TemplateStack {
+  template_id: string;
+  name: string;
+  collection_name: string;
+  collection_display_name: string;
+  schema_name: string;
+  /** Already-resolved full URL (null if no media) */
+  image_url: string | null;
+  image_type: 'image' | 'video' | 'none';
+  count: number;
+  max_supply: string;
+  issued_supply: string;
+  /** Up to 5 sample asset_ids for drill-down linking */
+  sample_asset_ids: string[];
+}
+
+export type StackSortOption =
+  | 'count:desc'
+  | 'count:asc'
+  | 'name:asc'
+  | 'name:desc'
+  | 'template_id:asc'
+  | 'template_id:desc';
+
+export const STACK_SORT_OPTIONS: { value: StackSortOption; label: string }[] = [
+  { value: 'count:desc', label: 'Most Copies' },
+  { value: 'count:asc', label: 'Fewest Copies' },
+  { value: 'name:asc', label: 'Name A→Z' },
+  { value: 'name:desc', label: 'Name Z→A' },
+  { value: 'template_id:asc', label: 'Template ID ↑' },
+  { value: 'template_id:desc', label: 'Template ID ↓' },
+];
+
+export interface StackMeta {
+  total: number;
+  page: number;
+  limit: number;
+  capped: boolean;
+  totalFetched: number;
+  noTemplateCount: number;
+}
+
+// ─── Template Links ────────────────────────────────────────────────────────────
+
+export interface TemplateLink {
+  id: string;
+  template_id: string;
+  /** Button label shown on the card, e.g. "Claim", "Info" */
+  label: string;
+  url: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Admin Types ──────────────────────────────────────────────────────────────
 
 export interface EndpointHealth {
