@@ -5,6 +5,23 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-25 (session 4 — M14: performance safety)
+
+Added:
+- **Request deduplication** in `lib/api/atomicassets.ts`: module-level `inflight: Map<string, Promise<unknown>>` keyed by path string; if two callers request the same URL concurrently, only one network request is made and both receive the same Promise; map entry removed in `.finally()`
+- **Concurrency semaphore**: `MAX_CONCURRENT = 12` cap on simultaneous outbound AtomicAssets requests; `acquireSlot()` / `releaseSlot()` with a FIFO waiter queue; background full-wallet scans (30 PARALLEL×pages) can no longer exhaust the connection pool
+- Refactored `apiFetch` into `performFetch` (raw retries + semaphore) + `apiFetch` (dedup wrapper)
+
+Changed:
+- `lib/api/atomicassets.ts`: reorganised into three layers: constants (TIMEOUT_MS, MAX_CONCURRENT), semaphore helpers (acquireSlot/releaseSlot), performFetch (retry loop inside try/finally with releaseSlot), apiFetch (dedup Map + shared-Promise logic)
+
+Design notes:
+- Dedup fires BEFORE semaphore acquisition — a deduplicated caller doesn't consume a concurrency slot
+- Semaphore waiters queue is FIFO; no starvation
+- `inflight` and semaphore state are module-level (not global) — reset on HMR restarts, which is correct: a dev HMR restart should not carry stale slot counts or promises
+
+---
+
 ## 2026-02-25 (session 4 — M13: full URL state sync)
 
 Added:
