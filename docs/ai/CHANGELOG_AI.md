@@ -5,6 +5,45 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-25 (session 4 — Assets view: pagination replaces infinite scroll)
+
+**Option A implemented** — classic Prev/Next pagination for the Assets grid. Infinite scroll
+caused the filter sidebar to shift during asset loading, making filters unreachable.
+
+Added:
+- Prev/Next pagination controls in `AssetGrid` (mirrors TemplateGrid pattern)
+- `page` and `hasNextPage` props on `AssetGrid`; `isFetching` shows spinner inline
+- `?pg=N` URL param serialized/parsed for grid page number (omitted when 1)
+- `placeholderData: (prev) => prev` on assets query — keeps previous page visible while fetching next, preventing blank flash during navigation
+
+Changed:
+- `components/AssetGrid.tsx`: full rewrite — `IntersectionObserver` removed; `hasMore/isFetchingMore/onLoadMore` props replaced by `page/hasNextPage/isFetching/onPageChange`
+- `app/wallet/[account]/page.tsx`:
+  - `useInfiniteQuery` → `useQuery` (removed `useInfiniteQuery` import, `infiniteKey` memo, `allAssets`, `hasNextPage`, `isFetchingNextPage`, `fetchNextPage`)
+  - Assets query key now includes `filters.page`; `filters.page` is the pagination state
+  - `assetsHasNextPage = rawAssets.length >= filters.limit` (same heuristic as before)
+  - `filtersToSearch` serializes `pg=N` for grid view when page > 1
+  - `parseFiltersFromSearch` parses `pg` → `filters.page`
+  - Collection quick-chip click now resets `page: 1`
+  - Header sub-line updated: "N assets on page X" (was "N assets loaded · scroll for more")
+
+Filter stability:
+- Filter panel uses `sticky top-20` — it was already sticky; pagination removes the root cause
+  (layout height growth from infinite scroll accumulation)
+- All filter changes (collections, schemas, search, sort, attributes, media) continue to reset
+  page to 1 via `onChange({ ..., page: 1 })` in FilterPanel and direct handlers
+
+URL behavior:
+- Visiting `?pg=3` restores page 3 on load ✅
+- Filter/sort change → page resets to 1 → `?pg=` param removed from URL ✅
+- Stack view unaffected — uses its own `spage` param ✅
+
+Deprecated:
+- Infinite scroll (`IntersectionObserver` auto-trigger) removed from Assets grid
+- `FEATURE_REGISTRY.md` updated: "Asset grid infinite scroll" → 🔥 deprecated
+
+---
+
 ## 2026-02-25 (session 4 — M14: performance safety)
 
 Added:

@@ -1,17 +1,20 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { AssetCard } from './AssetCard';
 import { PageSpinner, Spinner } from './ui/Spinner';
-import { AlertTriangle } from 'lucide-react';
+import { Button } from './ui/Button';
 import type { AssetData, TemplateLink } from '@/lib/types';
 
 interface AssetGridProps {
   assets: AssetData[];
   isLoading: boolean;
+  /** true while a background refetch is happening (page already displayed) */
+  isFetching: boolean;
   error: string | null;
-  hasMore: boolean;
-  isFetchingMore: boolean;
-  onLoadMore: () => void;
+  page: number;
+  /** true when the current page returned a full batch — there may be a next page */
+  hasNextPage: boolean;
+  onPageChange: (page: number) => void;
   /** template_id → TemplateLink[] map for link decoration (optional) */
   templateLinksMap?: Map<string, TemplateLink[]>;
 }
@@ -19,30 +22,13 @@ interface AssetGridProps {
 export function AssetGrid({
   assets,
   isLoading,
+  isFetching,
   error,
-  hasMore,
-  isFetchingMore,
-  onLoadMore,
+  page,
+  hasNextPage,
+  onPageChange,
   templateLinksMap,
 }: AssetGridProps) {
-  // Intersection-observer sentinel at the bottom of the grid
-  const sentinelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isFetchingMore) {
-          onLoadMore();
-        }
-      },
-      { rootMargin: '300px' }, // start loading before user reaches bottom
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [hasMore, isFetchingMore, onLoadMore]);
-
   if (isLoading) return <PageSpinner />;
 
   if (error) {
@@ -67,7 +53,7 @@ export function AssetGrid({
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       {/* Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
         {assets.map((asset) => (
@@ -83,16 +69,30 @@ export function AssetGrid({
         ))}
       </div>
 
-      {/* Infinite-scroll sentinel + status */}
-      <div ref={sentinelRef} className="flex items-center justify-center py-4 min-h-[48px]">
-        {isFetchingMore && (
-          <span className="flex items-center gap-2 text-sm text-zinc-400">
-            <Spinner size="sm" /> Loading more…
-          </span>
-        )}
-        {!hasMore && assets.length > 0 && (
-          <p className="text-xs text-zinc-600">All {assets.length} assets loaded</p>
-        )}
+      {/* Pagination controls */}
+      <div className="flex items-center justify-between pt-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Prev
+        </Button>
+        <span className="flex items-center gap-2 text-sm text-zinc-400">
+          {isFetching && <Spinner size="sm" />}
+          Page {page} · {assets.length} asset{assets.length !== 1 ? 's' : ''}
+        </span>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={!hasNextPage}
+          onClick={() => onPageChange(page + 1)}
+        >
+          Next
+          <ChevronRight className="w-4 h-4" />
+        </Button>
       </div>
     </div>
   );

@@ -14,17 +14,18 @@ Status legend:
 | Feature                        | Status | Notes                                                              |
 |--------------------------------|--------|--------------------------------------------------------------------|
 | WAX account search             | ✅     | Home page search form                                              |
-| Asset grid view                | ✅     | Infinite scroll (40/page, IntersectionObserver sentinel)           |
+| Asset grid view                | ✅     | Paginated (40/page, Prev/Next controls, URL-synced via ?pg=N)      |
 | Asset detail page              | ✅     | Full metadata, media gallery, attributes, burned status            |
-| Filter panel                   | ✅     | Search, sort, media type, collections, schemas, template ID, burned, rarity (beta) |
-| URL-synced filters             | ✅     | All filters except grid page number synced to URL                  |
+| Filter panel                   | ✅     | Search, sort, media type, collections, schemas, template ID, burned, dynamic attributes |
+| URL-synced filters             | ✅     | All filters + grid page number synced to URL (?pg=N)               |
 | Collection quick-chips         | ✅     | Top 8 collections shown as clickable chips                         |
 | Mobile filter drawer           | ✅     | Slide-in panel on small screens                                    |
-| Pagination (grid)              | 🔥    | Removed — replaced by infinite scroll                              |
+| Pagination (grid)              | ✅     | Prev/Next buttons, page resets on any filter change                |
+| Infinite scroll (grid)         | 🔥    | Removed — replaced by pagination (caused filter panel layout thrash) |
 | Pagination (stack/templates)   | ✅     | Prev/Next buttons in TemplateGrid                                  |
 | Multi-collection filter        | ✅     | Uses collection_whitelist API param server-side                    |
 | Multi-schema filter            | ✅     | Uses schema_whitelist API param server-side                        |
-| Rarity attribute filter (beta) | ✅     | Client-side; derived from loaded assets; hidden when not present   |
+| Dynamic attribute filters      | ✅     | Server-backed; auto-discovered from asset data; low-cardinality fields only |
 | Media gallery (multi-item)     | ✅     | Thumbnail strip + main viewport; IPFS gateway fallback per item    |
 
 ---
