@@ -289,12 +289,12 @@ export function FilterPanel({
       ═══════════════════════════════════════════ */}
       {mode === 'dropdown' && (
         <>
-          {/* Collections dropdown */}
-          {collectionOptions.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-zinc-500 uppercase tracking-wide">
-                Collections ({collectionOptions.length})
-              </label>
+          {/* Collections dropdown — always rendered; disabled state when data not yet loaded */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-zinc-500 uppercase tracking-wide">
+              Collections{collectionOptions.length > 0 ? ` (${collectionOptions.length})` : ''}
+            </label>
+            {collectionOptions.length > 0 ? (
               <Combobox
                 options={collectionOptions}
                 value={safeFilterCols}
@@ -302,8 +302,12 @@ export function FilterPanel({
                 placeholder="Filter collections…"
                 multiple
               />
-            </div>
-          )}
+            ) : (
+              <div className="flex items-center w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800/40 text-sm text-zinc-600 cursor-not-allowed select-none">
+                No collections
+              </div>
+            )}
+          </div>
 
           {/* Schemas dropdown */}
           {schemaOptions.length > 0 && (
@@ -370,12 +374,14 @@ export function FilterPanel({
       ═══════════════════════════════════════════ */}
       {mode === 'chips' && (
         <>
-          {/* Collections chips */}
-          {safeCollections.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-zinc-500 uppercase tracking-wide">
-                Collections ({safeCollections.length})
-              </label>
+          {/* Collections chips — always rendered; empty state when data not yet loaded */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs text-zinc-500 uppercase tracking-wide">
+              Collections{safeCollections.length > 0 ? ` (${safeCollections.length})` : ''}
+            </label>
+            {safeCollections.length === 0 ? (
+              <p className="text-xs text-zinc-600 italic px-1">No collections</p>
+            ) : (
               <div className="flex flex-col gap-1 max-h-52 overflow-y-auto pr-1">
                 {safeCollections.map(({ collection, assets }) => (
                   <button
@@ -393,8 +399,8 @@ export function FilterPanel({
                   </button>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Schema chips */}
           {safeSchemas.length > 0 && (

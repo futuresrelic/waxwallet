@@ -5,6 +5,76 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-25 (session 4e — Fix: Collections always first + Templates attribute filtering)
+
+### Issues fixed
+
+**A: Collections filter was sometimes absent / not first**
+- In FilterPanel dropdown mode, the Collections section was wrapped in
+  `{collectionOptions.length > 0 && (...)}` — hidden until collections data loaded.
+- Same in chips mode: `{safeCollections.length > 0 && (...)}`.
+- Fix: always render the Collections section (first, before Schemas and Attributes).
+  When `collectionOptions` is empty, show a disabled-looking placeholder ("No collections")
+  instead of the Combobox. When data loads, the Combobox appears automatically.
+- Ordering is now guaranteed: Collections → Schemas → Template ID → Attributes in both
+  dropdown and chips modes.
+
+**B: Templates view attribute filters had no effect**
+- `filters.attributes` was absent from the stack React Query key, so React Query never
+  refetched when an attribute filter changed.
+- `fetchStack` did not pass `a.{key}=value` params to `/api/stack`, so even if the query
+  ran, the API ignored attributes.
+- `/api/stack` had no mechanism to filter templates by attribute values.
+
+### Architecture for attribute filtering in Templates view
+
+`/api/stack` now builds a `templateAttrs` index during aggregation:
+- Reads `asset.template.immutable_data` merged with `asset.immutable_data` for the
+  **first asset** of each unique `template_id` (template immutable data is the same
+  for all copies of a template).
+- Stored as `Record<template_id, Record<field, string[]>>` inside `AggResult`.
+- Persisted to cache alongside the `stacks` array.
+- **Not** included in the aggregation cache key — same aggregation is reused across all
+  attribute filter combinations (attribute filtering is applied post-cache).
+
+Post-cache filtering order (applied before pagination in both code paths):
+1. Attribute filter: `Object.entries(attrFilters).every(([k,v]) => templateAttrs[tid][k].includes(v))`
+   — AND semantics across multiple `a.*` params
+2. Match filter: `name.toLowerCase().includes(match) || template_id.includes(match)`
+   — now also matches template_id substrings (e.g. typing "12345" finds that template)
+
+### Files changed
+
+**`app/api/stack/route.ts`**
+- Added `templateAttrs: Record<string, Record<string, string[]>>` to `AggResult` interface
+- `buildAggregation`: builds `templateAttrs` index from first-asset data per template_id
+- Added `filterStacks()` helper — handles both attribute and match filtering pre-pagination
+- Route handler: parses `a.{key}=value` params from query string into `attrFilters`
+- Both full-scan (background) and cached code paths now use `filterStacks`
+- Match filter extended to also check `template_id` (not just template name)
+- Old cache entries (missing `templateAttrs`) gracefully fall back to `{}` (no attr filtering
+  until cache expires and new entry is written — TTL is 120s)
+
+**`app/wallet/[account]/page.tsx`**
+- `fetchStack`: builds `attrParams` from `filters.attributes` and spreads into query string
+- Stack query key now includes `filters.attributes` at position 4
+
+**`components/FilterPanel.tsx`**
+- Dropdown mode: Collections section always rendered; disabled placeholder shown when empty
+- Chips mode: Collections section always rendered; "No collections" note shown when empty
+- Both modes: Collections is unconditionally first in render order
+
+### Behavior after fix
+- Collections filter is always visible and always first in FilterPanel ✅
+- In Templates view: changing any filter (collection, schema, attribute, search) immediately
+  triggers a refetch and updates template results ✅
+- Attribute filters in Templates view use templateAttrs index (built during aggregation,
+  cached alongside stacks) — no extra API calls needed ✅
+- Search also matches template_id substrings ✅
+- `npm run build` passes cleanly ✅
+
+---
+
 ## 2026-02-25 (session 4d — Hotfix: prevent map crash in filter dropdowns)
 
 ### Root cause fixed

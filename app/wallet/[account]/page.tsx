@@ -99,6 +99,10 @@ async function fetchStack(
   page: number,
   scanAll: boolean,
 ): Promise<{ data: TemplateStack[]; meta: StackMeta }> {
+  // Build attribute params as a.{key}=value entries (same convention as /api/assets)
+  const attrParams = Object.fromEntries(
+    Object.entries(filters.attributes ?? {}).map(([k, v]) => [`a.${k}`, v]),
+  );
   const qs = buildQueryString({
     owner: account,
     collection_name: filters.collections.join(',') || undefined,
@@ -108,6 +112,7 @@ async function fetchStack(
     page,
     limit: 20,
     scan_pages: scanAll ? 10 : 3,
+    ...attrParams,
   });
   const res = await fetch(`/api/stack?${qs}`);
   const json = await res.json();
@@ -319,7 +324,7 @@ export default function WalletPage({ params }: WalletPageProps) {
     error: stackError,
     isFetching: stackFetching,
   } = useQuery({
-    queryKey: ['stack', account, filters.collections, filters.schemas, filters.search, stackSort, stackPage, stackScanAll],
+    queryKey: ['stack', account, filters.collections, filters.schemas, filters.attributes, filters.search, stackSort, stackPage, stackScanAll],
     queryFn: () => fetchStack(account, filters, stackSort, stackPage, stackScanAll),
     enabled: viewMode === 'stack',
     staleTime: 60_000,

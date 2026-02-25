@@ -14,6 +14,9 @@
 //                             When scan_pages >= 10, the full scan runs in the background
 //                             and partial results are returned immediately with meta.indexing=true.
 //   refresh         optional  bypass cache and re-scan
+//   match           optional  filter template names (and template_id) by substring
+//   a.{key}         optional  attribute filter — template must have key=value
+//                             (AND semantics across multiple a.* params)
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssets } from '@/lib/api/atomicassets';
@@ -82,6 +85,13 @@ async function collectAssets(params: {
 
 interface AggResult {
   stacks: TemplateStack[];
+  /**
+   * Per-template attribute values indexed during aggregation.
+   * Used for post-cache attribute filtering so the aggregation cache can be
+   * shared across different attribute filter combinations.
+   * Shape: template_id → { field → [value, …] }
+   */
+  templateAttrs: Record<string, Record<string, string[]>>;
   capped: boolean;
   scanComplete: boolean;
   totalFetched: number;
@@ -103,6 +113,7 @@ async function buildAggregation(
   });
 
   const templateMap = new Map<string, TemplateStack>();
+  const templateAttrs: Record<string, Record<string, string[]>> = {};
   let noTemplateCount = 0;
 
   for (const asset of assets) {
@@ -123,6 +134,21 @@ async function buildAggregation(
         issued_supply: asset.template.issued_supply,
         sample_asset_ids: [],
       });
+
+      // Index template-level attribute values once per unique template_id.
+      // Uses template.immutable_data (same for all copies) merged with asset.immutable_data
+      // so facet-panel attribute values align with what the user sees in filters.
+      const attrSource: Record<string, unknown> = {
+        ...asset.template.immutable_data,
+        ...asset.immutable_data,
+      };
+      const attrEntry: Record<string, string[]> = {};
+      for (const [key, val] of Object.entries(attrSource)) {
+        if (val === null || val === undefined || typeof val === 'boolean') continue;
+        const strVal = String(val);
+        if (strVal && strVal !== 'undefined') attrEntry[key] = [strVal];
+      }
+      templateAttrs[tid] = attrEntry;
     }
     const entry = templateMap.get(tid)!;
     entry.count++;
@@ -138,7 +164,45 @@ async function buildAggregation(
     return sortDir === 'asc' ? cmp : -cmp;
   });
 
-  return { stacks, capped, scanComplete, totalFetched: assets.length, noTemplateCount };
+  return { stacks, templateAttrs, capped, scanComplete, totalFetched: assets.length, noTemplateCount };
+}
+
+// ─── Post-cache filter helper ─────────────────────────────────────────────────
+
+/**
+ * Apply attribute and name/id filters to a sorted stacks array.
+ * Attribute filtering uses the indexed templateAttrs map (built during aggregation).
+ * Match filters by template name OR template_id substring.
+ * Both filters are applied before pagination.
+ */
+function filterStacks(
+  rawStacks: TemplateStack[],
+  templateAttrs: Record<string, Record<string, string[]>>,
+  attrFilters: Record<string, string>,
+  match: string | undefined,
+): TemplateStack[] {
+  let stacks = rawStacks;
+
+  // Attribute filter: template must have ALL specified key=value pairs (AND semantics)
+  if (Object.keys(attrFilters).length > 0) {
+    stacks = stacks.filter((s) => {
+      const attrs = templateAttrs[s.template_id] ?? {};
+      return Object.entries(attrFilters).every(([key, val]) => {
+        const values = attrs[key];
+        return Array.isArray(values) && values.includes(val);
+      });
+    });
+  }
+
+  // Match filter: template name or template_id contains the search string
+  if (match) {
+    const matchLow = match.toLowerCase();
+    stacks = stacks.filter(
+      (s) => s.name.toLowerCase().includes(matchLow) || s.template_id.includes(match),
+    );
+  }
+
+  return stacks;
 }
 
 // ─── Route handler ────────────────────────────────────────────────────────────
@@ -159,12 +223,20 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') ?? 20)));
   const refresh = searchParams.get('refresh') === 'true';
 
+  // Attribute filters: a.{key}=value params (AND semantics, applied post-cache)
+  const attrFilters: Record<string, string> = {};
+  for (const [key, value] of searchParams.entries()) {
+    if (key.startsWith('a.') && value) attrFilters[key.slice(2)] = value;
+  }
+
   // scan_pages controls how many 1000-asset batches to scan.
   const scanPages = Math.min(10, Math.max(1, Number(searchParams.get('scan_pages') ?? FAST_SCAN_PAGES)));
   const maxAssets = Math.min(MAX_ASSETS, scanPages * BATCH_SIZE);
   const isFullScan = scanPages >= 10;
 
-  // Cache key covers the full sorted template list for this query shape
+  // Cache key covers the full sorted template list for this query shape.
+  // Attribute filters are intentionally excluded from the key — they are applied
+  // post-cache so the same aggregation is reused across different attribute combos.
   const aggCacheKey = buildCacheKey('stack', {
     owner,
     collection_name: collectionName,
@@ -212,9 +284,8 @@ export async function GET(req: NextRequest) {
           await cacheSet(fastCacheKey, partial, CACHE_TTL);
         }
 
-        const { stacks: rawStacks, capped, scanComplete, totalFetched, noTemplateCount } = partial;
-        const matchLow = match?.toLowerCase();
-        const stacks = matchLow ? rawStacks.filter(s => s.name.toLowerCase().includes(matchLow)) : rawStacks;
+        const { stacks: rawStacks, templateAttrs: partialAttrs, capped, scanComplete, totalFetched, noTemplateCount } = partial;
+        const stacks = filterStacks(rawStacks, partialAttrs ?? {}, attrFilters, match);
         const total = stacks.length;
         const start = (page - 1) * limit;
         const pageData = stacks.slice(start, start + limit);
@@ -241,10 +312,10 @@ export async function GET(req: NextRequest) {
       await cacheSet(aggCacheKey, agg, CACHE_TTL);
     }
 
-    // ── Paginate from cached sorted list (with optional name filter) ──────────
-    const { stacks: rawStacks, capped, scanComplete, totalFetched, noTemplateCount } = agg;
-    const matchLow = match?.toLowerCase();
-    const stacks = matchLow ? rawStacks.filter(s => s.name.toLowerCase().includes(matchLow)) : rawStacks;
+    // ── Paginate from cached sorted list (with attribute + name filters) ──────
+    const { stacks: rawStacks, templateAttrs: cachedAttrs, capped, scanComplete, totalFetched, noTemplateCount } = agg;
+    // Guard: old cache entries (written before templateAttrs was added) won't have the field
+    const stacks = filterStacks(rawStacks, cachedAttrs ?? {}, attrFilters, match);
     const total = stacks.length;
     const start = (page - 1) * limit;
     const pageData = stacks.slice(start, start + limit);
