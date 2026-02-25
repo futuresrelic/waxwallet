@@ -1,17 +1,17 @@
 'use client';
-import { use } from 'react';
+import { use, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Copy, Check, Flame } from 'lucide-react';
 import { MediaGallery } from '@/components/MediaGallery';
 import { AttributeList, RawJson } from '@/components/AttributeList';
+import { AssetCard } from '@/components/AssetCard';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { collectAllMedia, getAssetName, type AssetData } from '@/lib/types';
 import { formatMint, formatTimestamp } from '@/lib/utils';
-import { useState } from 'react';
 
 function CopyButton({ text, className }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false);
@@ -36,6 +36,13 @@ async function fetchAsset(assetId: string): Promise<AssetData> {
   return json.data as AssetData;
 }
 
+async function fetchRelatedAssets(owner: string, templateId: string): Promise<AssetData[]> {
+  const res = await fetch(`/api/assets?owner=${encodeURIComponent(owner)}&template_id=${encodeURIComponent(templateId)}&limit=13`);
+  const json = await res.json();
+  if (!json.success) return [];
+  return json.data as AssetData[];
+}
+
 export default function AssetDetailPage({ params }: { params: Promise<{ assetId: string }> }) {
   const { assetId } = use(params);
   const router = useRouter();
@@ -44,6 +51,17 @@ export default function AssetDetailPage({ params }: { params: Promise<{ assetId:
     queryKey: ['asset', assetId],
     queryFn: () => fetchAsset(assetId),
   });
+
+  // Related assets: same template_id — enabled only after the asset loads
+  const templateId = asset?.template?.template_id;
+  const { data: relatedRaw = [] } = useQuery({
+    queryKey: ['related', asset?.owner, templateId],
+    queryFn: () => fetchRelatedAssets(asset!.owner, templateId!),
+    enabled: !!asset && !!templateId,
+    staleTime: 60_000,
+  });
+  // Exclude the current asset, cap at 12
+  const relatedAssets = relatedRaw.filter(a => a.asset_id !== assetId).slice(0, 12);
 
   if (isLoading) return <PageSpinner />;
 
@@ -160,16 +178,57 @@ export default function AssetDetailPage({ params }: { params: Promise<{ assetId:
       {/* Attributes */}
       <div className="flex flex-col gap-3">
         {Object.keys(mergedData).length > 0 && (
-          <AttributeList data={mergedData} title="Attributes" defaultOpen />
+          <AttributeList
+            data={mergedData}
+            title="Attributes"
+            defaultOpen
+            owner={asset.owner}
+            collectionName={asset.collection.collection_name}
+          />
         )}
         {asset.template?.immutable_data && Object.keys(asset.template.immutable_data).length > 0 && (
-          <AttributeList data={asset.template.immutable_data} title="Template Attributes" defaultOpen={false} />
+          <AttributeList
+            data={asset.template.immutable_data}
+            title="Template Attributes"
+            defaultOpen={false}
+            owner={asset.owner}
+            collectionName={asset.collection.collection_name}
+          />
         )}
         {asset.mutable_data && Object.keys(asset.mutable_data).length > 0 && (
-          <AttributeList data={asset.mutable_data} title="Mutable Data" defaultOpen={false} />
+          <AttributeList
+            data={asset.mutable_data}
+            title="Mutable Data"
+            defaultOpen={false}
+            owner={asset.owner}
+            collectionName={asset.collection.collection_name}
+          />
         )}
         <RawJson data={asset} title="Raw Asset Data" />
       </div>
+
+      {/* Related Assets (same template) */}
+      {relatedAssets.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-zinc-400">
+              More from this template
+              <span className="ml-1.5 text-xs text-zinc-600">T#{templateId}</span>
+            </h2>
+            <Link
+              href={`/wallet/${asset.owner}?t=${templateId}`}
+              className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
+            >
+              See all →
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {relatedAssets.map(a => (
+              <AssetCard key={a.asset_id} asset={a} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

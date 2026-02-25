@@ -5,6 +5,40 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-25 (session 4b — Dropdown filter mode + attribute pivot drill-down)
+
+### Dropdown filter mode (`feat: add dropdown filter mode with searchable comboboxes`)
+
+**New file:** `components/ui/Combobox.tsx`
+- Lightweight searchable combobox (no external deps)
+- Inline-expanding panel (not `position: absolute`) — works inside `overflow-y: auto` containers without clipping
+- Supports `multiple` (checkboxes) and single-select (radio-style) with optional per-option count
+- Keyboard: Escape closes; outside-click closes; auto-focuses search input on open
+
+**Rewritten:** `components/FilterPanel.tsx`
+- Two modes: `dropdown` (default) and `chips` (legacy), toggled via header button
+- Mode persisted in `localStorage` (`'wax-filter-mode'`); SSR-safe via `useEffect` hydration
+- Dropdown mode: Collections and Schemas use `Combobox` (multi); each attribute group uses `Combobox` (single)
+- Applied-filter chips strip: always visible when any filter is active; each chip has an X remove button; "Clear all" when ≥ 2 chips
+- Chips mode: original chip-cloud UI preserved exactly
+- Props unchanged (no API contract changes)
+
+### Attribute pivot drill-down (`feat: attribute pivot drill-down from asset detail`)
+
+**Modified:** `components/AttributeList.tsx`
+- New props: `owner?: string`, `collectionName?: string`
+- New helper `isPivotable(value)`: returns true for strings ≤ 80 chars that are not HTTP URLs, `ipfs://` URIs, or IPFS CIDv0/CIDv1 hashes
+- When `owner` is provided and a value is pivotable, the value cell renders as a `<Link>` to `/wallet/{owner}?a.{key}={value}&c={collection}` (amber color, underline on hover)
+- Non-pivotable values (long strings, URLs, IPFS hashes, numbers) render as plain text, unchanged
+
+**Modified:** `app/asset/[assetId]/page.tsx`
+- `AttributeList` for `mergedData`, `template.immutable_data`, and `mutable_data` now receive `owner` and `collectionName`
+- New `fetchRelatedAssets(owner, templateId)` fetcher hits `/api/assets?owner=…&template_id=…&limit=13`
+- New `useQuery(['related', owner, templateId])` — enabled only when `asset` and `template_id` are available
+- "More from this template" panel: grid of up to 12 `AssetCard`s (current asset excluded); "See all →" link to `/wallet/{owner}?t={templateId}`; only shown when ≥ 1 related asset exists
+
+---
+
 ## 2026-02-25 (session 4 — Assets view: pagination replaces infinite scroll)
 
 **Option A implemented** — classic Prev/Next pagination for the Assets grid. Infinite scroll
