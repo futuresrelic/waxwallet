@@ -5,6 +5,59 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-25 (session 4d — Hotfix: prevent map crash in filter dropdowns)
+
+### Root cause fixed
+
+**`l.map is not a function` still crashing after session 4c fix** — the `TemplateGrid`
+guard didn't catch it because the crash was elsewhere:
+
+`Combobox.tsx` computes:
+```ts
+const filtered = search ? options.filter(...) : options;
+```
+When `search` is empty (falsy), `filtered = options` directly — no defensive copy.
+If `options` is a non-array (e.g. a `Record<string, number>` from facets, or a raw
+API response object for `collections`/`schemas`), then `filtered.map(opt => ...)` throws
+`l.map is not a function` (where `l` = `filtered` in minified output).
+
+The new dropdown-mode `FilterPanel` computes `collectionOptions = collections.map(...)`
+and `schemaOptions = schemas.map(...)` unconditionally at the component top level.
+Previously these were inside conditional blocks. So any bad API shape now crashes
+immediately on every render, before even reaching Combobox.
+
+### Files changed
+
+**`components/ui/Combobox.tsx`**
+- Added `safeOptions = Array.isArray(options) ? options : []` guard
+- Added `safeValue = Array.isArray(value) ? value : []` guard
+- All internal uses of `options` and `value` replaced with `safeOptions`/`safeValue`
+- Bad prop shapes now degrade gracefully (empty list) instead of crashing
+
+**`components/FilterPanel.tsx`**
+- Added `safeCollections`, `safeSchemas`, `safeFilterCols`, `safeFilterSchs` guards
+- `collectionOptions` and `schemaOptions` computed from safe arrays
+- `toggleCollection`, `toggleSchema`, `removeCollection`, `removeSchema`, `activeFilters`
+  all use safe arrays
+- Added `safeFacets` guard for `attributeFacets` (object vs null/undefined)
+- Inner facet values filtered to ensure they are plain objects before use
+- All Combobox `value` props use safe arrays
+- Chips-mode render loops use safe arrays
+- Shows "Filters data invalid — try refresh" banner if `attributeFacets` is corrupted
+
+**`components/AssetGrid.tsx`**
+- Added `Array.isArray(assets)` guard before `.length` and `.map` calls
+- Shows "Assets data invalid — try refresh" error banner instead of crashing
+
+### Behavior after fix
+- `l.map is not a function` crash eliminated across all three components ✅
+- Combobox silently degrades to empty list on bad props instead of crashing ✅
+- FilterPanel shows graceful error banner on corrupted facets ✅
+- AssetGrid shows graceful error banner on corrupted assets ✅
+- `npm run build` passes cleanly ✅
+
+---
+
 ## 2026-02-25 (session 4c — Fix: Templates view filter reactivity + l.map crash)
 
 ### Root causes fixed

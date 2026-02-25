@@ -97,16 +97,16 @@ export function FilterPanel({
   // ── Toggle helpers ───────────────────────────────────────────────────────
 
   const toggleCollection = (name: string) => {
-    const next = filters.collections.includes(name)
-      ? filters.collections.filter(c => c !== name)
-      : [...filters.collections, name];
+    const next = safeFilterCols.includes(name)
+      ? safeFilterCols.filter(c => c !== name)
+      : [...safeFilterCols, name];
     onChange({ collections: next, schemas: [], page: 1 });
   };
 
   const toggleSchema = (name: string) => {
-    const next = filters.schemas.includes(name)
-      ? filters.schemas.filter(s => s !== name)
-      : [...filters.schemas, name];
+    const next = safeFilterSchs.includes(name)
+      ? safeFilterSchs.filter(s => s !== name)
+      : [...safeFilterSchs, name];
     onChange({ schemas: next, page: 1 });
   };
 
@@ -120,10 +120,16 @@ export function FilterPanel({
 
   // ── Active filter summary (for applied-chips strip) ──────────────────────
 
+  // Defensive normalization: props must be arrays; wrong API shapes degrade gracefully
+  const safeCollections = Array.isArray(collections) ? collections : [];
+  const safeSchemas     = Array.isArray(schemas)     ? schemas     : [];
+  const safeFilterCols  = Array.isArray(filters.collections) ? filters.collections : [];
+  const safeFilterSchs  = Array.isArray(filters.schemas)     ? filters.schemas     : [];
+
   const removeCollection = (c: string) =>
-    onChange({ collections: filters.collections.filter(x => x !== c), schemas: [], page: 1 });
+    onChange({ collections: safeFilterCols.filter(x => x !== c), schemas: [], page: 1 });
   const removeSchema = (s: string) =>
-    onChange({ schemas: filters.schemas.filter(x => x !== s), page: 1 });
+    onChange({ schemas: safeFilterSchs.filter(x => x !== s), page: 1 });
   const removeAttribute = (key: string) => {
     const next = { ...(filters.attributes ?? {}) };
     delete next[key];
@@ -131,12 +137,12 @@ export function FilterPanel({
   };
 
   const activeFilters = [
-    ...filters.collections.map(c => ({
+    ...safeFilterCols.map(c => ({
       key: `col:${c}`,
-      label: collections.find(x => x.collection.collection_name === c)?.collection.name || c,
+      label: safeCollections.find(x => x.collection.collection_name === c)?.collection.name || c,
       onRemove: () => removeCollection(c),
     })),
-    ...filters.schemas.map(s => ({
+    ...safeFilterSchs.map(s => ({
       key: `sch:${s}`,
       label: s,
       onRemove: () => removeSchema(s),
@@ -158,19 +164,24 @@ export function FilterPanel({
 
   // ── Combobox option builders ─────────────────────────────────────────────
 
-  const collectionOptions = collections.map(({ collection, assets }) => ({
+  const collectionOptions = safeCollections.map(({ collection, assets }) => ({
     value: collection.collection_name,
     label: collection.name || collection.collection_name,
     count: assets,
   }));
 
-  const schemaOptions = schemas.map(({ schema_name }) => ({
+  const schemaOptions = safeSchemas.map(({ schema_name }) => ({
     value: schema_name,
     label: schema_name,
     count: schemaCounts?.[schema_name],
   }));
 
-  const attributeEntries = Object.entries(attributeFacets);
+  // Guard attributeFacets: each inner value must be an object (Record<string,number>)
+  const safeFacets: Record<string, Record<string, number>> =
+    attributeFacets && typeof attributeFacets === 'object' ? attributeFacets : {};
+  const attributeEntries = Object.entries(safeFacets).filter(
+    ([, v]) => v !== null && v !== undefined && typeof v === 'object',
+  );
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -286,7 +297,7 @@ export function FilterPanel({
               </label>
               <Combobox
                 options={collectionOptions}
-                value={filters.collections}
+                value={safeFilterCols}
                 onChange={vals => onChange({ collections: vals, schemas: [], page: 1 })}
                 placeholder="Filter collections…"
                 multiple
@@ -300,7 +311,7 @@ export function FilterPanel({
               <label className="text-xs text-zinc-500 uppercase tracking-wide">Schemas</label>
               <Combobox
                 options={schemaOptions}
-                value={filters.schemas}
+                value={safeFilterSchs}
                 onChange={vals => onChange({ schemas: vals, page: 1 })}
                 placeholder="Filter schemas…"
                 multiple
@@ -360,19 +371,19 @@ export function FilterPanel({
       {mode === 'chips' && (
         <>
           {/* Collections chips */}
-          {collections.length > 0 && (
+          {safeCollections.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <label className="text-xs text-zinc-500 uppercase tracking-wide">
-                Collections ({collections.length})
+                Collections ({safeCollections.length})
               </label>
               <div className="flex flex-col gap-1 max-h-52 overflow-y-auto pr-1">
-                {collections.map(({ collection, assets }) => (
+                {safeCollections.map(({ collection, assets }) => (
                   <button
                     key={collection.collection_name}
                     onClick={() => toggleCollection(collection.collection_name)}
                     className={cn(
                       'flex items-center justify-between text-sm px-3 py-1.5 rounded-lg border transition-colors text-left',
-                      filters.collections.includes(collection.collection_name)
+                      safeFilterCols.includes(collection.collection_name)
                         ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
                         : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-300 hover:text-white hover:bg-zinc-800',
                     )}
@@ -386,11 +397,11 @@ export function FilterPanel({
           )}
 
           {/* Schema chips */}
-          {schemas.length > 0 && (
+          {safeSchemas.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <label className="text-xs text-zinc-500 uppercase tracking-wide">Schemas</label>
               <div className="flex flex-wrap gap-1.5">
-                {schemas.map(({ schema_name }) => {
+                {safeSchemas.map(({ schema_name }) => {
                   const count = schemaCounts?.[schema_name];
                   return (
                     <button
@@ -398,7 +409,7 @@ export function FilterPanel({
                       onClick={() => toggleSchema(schema_name)}
                       className={cn(
                         'text-xs px-2.5 py-1 rounded-full border transition-colors',
-                        filters.schemas.includes(schema_name)
+                        safeFilterSchs.includes(schema_name)
                           ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
                           : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white',
                       )}

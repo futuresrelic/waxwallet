@@ -40,6 +40,12 @@ export function Combobox({
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Defensive guards: options and value must be arrays.
+  // If the parent passes a wrong shape (object from API, undefined, etc.) we
+  // silently degrade rather than crashing with "l.map is not a function".
+  const safeOptions = Array.isArray(options) ? options : [];
+  const safeValue   = Array.isArray(value)   ? value   : [];
+
   // Close on outside click
   useEffect(() => {
     function onDown(e: MouseEvent) {
@@ -66,26 +72,25 @@ export function Combobox({
   }, [open]);
 
   const filtered = search
-    ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
-    : options;
+    ? safeOptions.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
+    : safeOptions;
 
   const toggle = (v: string) => {
     if (multiple) {
-      onChange(value.includes(v) ? value.filter(x => x !== v) : [...value, v]);
+      onChange(safeValue.includes(v) ? safeValue.filter(x => x !== v) : [...safeValue, v]);
     } else {
-      // Single-select: deselect if already selected
-      onChange(value[0] === v ? [] : [v]);
+      onChange(safeValue[0] === v ? [] : [v]);
       setOpen(false);
       setSearch('');
     }
   };
 
   const selectedLabel =
-    value.length === 0
+    safeValue.length === 0
       ? null
-      : value.length === 1
-        ? (options.find(o => o.value === value[0])?.label ?? value[0])
-        : `${value.length} selected`;
+      : safeValue.length === 1
+        ? (safeOptions.find(o => o.value === safeValue[0])?.label ?? safeValue[0])
+        : `${safeValue.length} selected`;
 
   return (
     <div ref={containerRef} className={cn('flex flex-col', className)}>
@@ -97,7 +102,7 @@ export function Combobox({
           'flex items-center justify-between gap-1.5 w-full px-3 py-2 rounded-lg border text-sm transition-colors text-left',
           open
             ? 'bg-zinc-700/60 border-zinc-600 text-white'
-            : value.length > 0
+            : safeValue.length > 0
               ? 'bg-zinc-800 border-amber-500/40 text-zinc-200 hover:border-amber-500/60'
               : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300',
         )}
@@ -135,7 +140,7 @@ export function Combobox({
           </div>
 
           {/* Clear selection row (single-select, when a value is active) */}
-          {!multiple && value.length > 0 && (
+          {!multiple && safeValue.length > 0 && (
             <button
               type="button"
               onClick={() => { onChange([]); setOpen(false); setSearch(''); }}
@@ -152,7 +157,7 @@ export function Combobox({
               <p className="text-xs text-zinc-600 px-3 py-2">No matches</p>
             ) : (
               filtered.map(opt => {
-                const sel = value.includes(opt.value);
+                const sel = safeValue.includes(opt.value);
                 return (
                   <button
                     key={opt.value}
