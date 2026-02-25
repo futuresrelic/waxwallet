@@ -127,7 +127,20 @@ async function fetchStack(
 async function fetchCollections(account: string) {
   const res = await fetch(`/api/collections?owner=${account}`);
   const json = await res.json();
-  return (json.data?.collections ?? []) as Array<{
+  // Server returns { success, data: { collections: [...] } } after the fix in getAccountSummary.
+  // Robust extraction handles both the corrected shape and any stale/cached double-nested shape:
+  //   json.data.collections            — correct (array)
+  //   json.data.collections.collections — old double-nested (object wrapping array)
+  const raw = json.data?.collections;
+  const list = Array.isArray(raw)
+    ? raw
+    : Array.isArray(raw?.collections)
+      ? raw.collections
+      : [];
+  if (process.env.NODE_ENV !== 'production' && !Array.isArray(raw)) {
+    console.warn('[fetchCollections] unexpected shape; raw:', raw);
+  }
+  return list as Array<{
     collection: { collection_name: string; name: string };
     assets: number;
   }>;

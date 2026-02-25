@@ -210,6 +210,18 @@ export interface AccountSummary {
 }
 
 export async function getAccountSummary(owner: string): Promise<AccountSummary> {
-  const data = await apiFetch<AccountSummary['collections']>(`/accounts/${owner}`);
-  return { collections: data };
+  // AtomicAssets /accounts/{owner} returns an object:
+  //   { collections: [...], templates: [...], schemas: [...] }
+  // apiFetch() unwraps json.data, so `raw` is that object — NOT the collections array.
+  // Previously this function did `return { collections: raw }` which produced double-nesting:
+  //   { collections: { collections: [...] } }  ← WRONG
+  // Fix: extract raw.collections (the actual array) and fall back gracefully.
+  type RawAccount = { collections: AccountSummary['collections'] } & Record<string, unknown>;
+  const raw = await apiFetch<RawAccount | AccountSummary['collections']>(`/accounts/${owner}`);
+  const cols: AccountSummary['collections'] = Array.isArray(raw)
+    ? (raw as AccountSummary['collections'])
+    : Array.isArray((raw as RawAccount).collections)
+      ? (raw as RawAccount).collections
+      : [];
+  return { collections: cols };
 }

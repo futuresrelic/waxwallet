@@ -5,6 +5,51 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-25 (session 4f — Fix: collections double-nesting bug / "No collections" shown)
+
+### Root cause
+
+`getAccountSummary` in `lib/api/atomicassets.ts` misread the AtomicAssets
+`/accounts/{owner}` response. That endpoint returns:
+
+```
+{ collections: [...], templates: [...], schemas: [...] }
+```
+
+`apiFetch()` unwraps `json.data`, so `raw` is the object above. But the old code did:
+
+```typescript
+const data = await apiFetch<AccountSummary['collections']>(`/accounts/${owner}`);
+return { collections: data };   // wraps the object — double nesting!
+```
+
+Resulting API response: `{ data: { collections: { collections: [...] } } }`.
+
+Client fetcher read `json.data?.collections` → got the inner object `{ collections: [...] }`.
+`Array.isArray()` guard in FilterPanel turned it into `[]` → "No collections" shown despite
+the wallet having many collections.
+
+### Files changed
+
+**`lib/api/atomicassets.ts`** — `getAccountSummary`
+- Now typed as `RawAccount | AccountSummary['collections']` to match actual API shape
+- Extracts `raw.collections` (the array) when the response is an object; falls back to
+  treating `raw` as the array directly when the API returns the array in some environments
+- API route now returns `{ data: { collections: [...] } }` (flat, correct shape)
+
+**`app/wallet/[account]/page.tsx`** — `fetchCollections`
+- Added robust extraction: tries `json.data.collections` (array) first, then falls back to
+  `json.data.collections.collections` (old double-nested shape, e.g. stale CDN cache)
+- Added `console.warn` in non-production when the raw value is not an array (dev debugging)
+
+### Behavior after fix
+- Collections dropdown populates with real collections on wallet load ✅
+- Selecting a collection filters Assets and Templates views correctly ✅
+- FilterPanel shows "No collections" only when the wallet genuinely has none ✅
+- `npm run build` passes cleanly ✅
+
+---
+
 ## 2026-02-25 (session 4e — Fix: Collections always first + Templates attribute filtering)
 
 ### Issues fixed
