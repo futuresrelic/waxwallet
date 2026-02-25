@@ -36,6 +36,20 @@ export function TemplateGrid({
 }: TemplateGridProps) {
   if (isLoading) return <PageSpinner />;
 
+  // Defensive guard: if the API returned a non-array (shape mismatch / cache corruption)
+  // show a recoverable error instead of crashing with "l.map is not a function".
+  if (!Array.isArray(stacks)) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4 text-center">
+        <AlertTriangle className="w-10 h-10 text-amber-400" />
+        <div>
+          <p className="text-white font-medium">Templates data invalid — try refresh</p>
+          <p className="text-sm text-zinc-400 mt-1">Unexpected response shape from server</p>
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4 text-center">

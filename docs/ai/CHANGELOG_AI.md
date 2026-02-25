@@ -5,6 +5,50 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-25 (session 4c — Fix: Templates view filter reactivity + l.map crash)
+
+### Root causes fixed
+
+**Bug 1: "Templates filter/search does nothing"** — two sub-causes:
+1. `stackPage` was never reset to 1 when filters changed. `handleFiltersChange` reset
+   `filters.page` (grid page) but `stackPage` is separate state. Changing collection on
+   template page 3 would fetch page 3 of the new filter — likely empty — masking the
+   filter effect entirely.
+2. `filters.search` was absent from the stack query key AND `fetchStack` never passed
+   `match` to `/api/stack`, so typing in the search box had zero effect in Templates view.
+
+**Bug 2: `l.map is not a function` (repeating console error)** — `stacks.map()` in
+`TemplateGrid` crashes if `stackResult.data` is not an array (stale cache shape, race
+condition). No `Array.isArray` guard existed.
+
+### Files changed
+
+**`app/api/stack/route.ts`**
+- Accept `match` query param (template name substring search)
+- Apply match filter in-memory AFTER loading aggregation from cache, BEFORE paginating
+  (cache key unchanged — aggregation is reused across different search terms)
+- Both the fast-scan path and the normal cached path apply the match filter
+
+**`app/wallet/[account]/page.tsx`**
+- Added `isTemplateStackArray(x)` and `isFacetsResponse(x)` runtime validator functions
+- `fetchStack`: passes `match: filters.search || undefined` to API
+- `fetchFacets`: uses `isFacetsResponse()` guard before trusting API data
+- Stack query key now includes `filters.search` — search changes trigger a refetch
+- `handleFiltersChange`: calls `setStackPage(1)` → template pagination resets on any filter change
+- `handleClearFilters`: calls `setStackPage(1)` as well
+
+**`components/TemplateGrid.tsx`**
+- Added `Array.isArray(stacks)` guard before any `.map` call
+- Shows "Templates data invalid — try refresh" error banner instead of crashing
+
+### Behavior after fix
+- In Templates view: changing collection/schema → page resets to 1, correct results appear ✅
+- In Templates view: typing in search box → filters templates by name in real time ✅
+- No more `l.map is not a function` crash — graceful error banner shown instead ✅
+- `/api/stack` `match` filter is applied post-cache so aggregation cache is shared ✅
+
+---
+
 ## 2026-02-25 (session 4b — Dropdown filter mode + attribute pivot drill-down)
 
 ### Dropdown filter mode (`feat: add dropdown filter mode with searchable comboboxes`)

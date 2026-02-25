@@ -153,6 +153,7 @@ export async function GET(req: NextRequest) {
 
   const collectionName = searchParams.get('collection_name') ?? undefined;
   const schemaName = searchParams.get('schema_name') ?? undefined;
+  const match = searchParams.get('match')?.trim() || undefined;
   const sort = searchParams.get('sort') ?? 'count:desc';
   const page = Math.max(1, Number(searchParams.get('page') ?? 1));
   const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') ?? 20)));
@@ -211,7 +212,9 @@ export async function GET(req: NextRequest) {
           await cacheSet(fastCacheKey, partial, CACHE_TTL);
         }
 
-        const { stacks, capped, scanComplete, totalFetched, noTemplateCount } = partial;
+        const { stacks: rawStacks, capped, scanComplete, totalFetched, noTemplateCount } = partial;
+        const matchLow = match?.toLowerCase();
+        const stacks = matchLow ? rawStacks.filter(s => s.name.toLowerCase().includes(matchLow)) : rawStacks;
         const total = stacks.length;
         const start = (page - 1) * limit;
         const pageData = stacks.slice(start, start + limit);
@@ -238,8 +241,10 @@ export async function GET(req: NextRequest) {
       await cacheSet(aggCacheKey, agg, CACHE_TTL);
     }
 
-    // ── Paginate from cached sorted list ─────────────────────────────────────
-    const { stacks, capped, scanComplete, totalFetched, noTemplateCount } = agg;
+    // ── Paginate from cached sorted list (with optional name filter) ──────────
+    const { stacks: rawStacks, capped, scanComplete, totalFetched, noTemplateCount } = agg;
+    const matchLow = match?.toLowerCase();
+    const stacks = matchLow ? rawStacks.filter(s => s.name.toLowerCase().includes(matchLow)) : rawStacks;
     const total = stacks.length;
     const start = (page - 1) * limit;
     const pageData = stacks.slice(start, start + limit);

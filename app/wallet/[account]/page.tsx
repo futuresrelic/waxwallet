@@ -72,8 +72,24 @@ async function fetchFacets(
   });
   const res = await fetch(`/api/facets?${qs}`);
   const json = await res.json();
-  if (!json.success) return { attributes: {}, schemas: {}, scanned: 0, capped: false };
-  return json.data as FacetsResponse;
+  if (!json.success || !isFacetsResponse(json.data)) {
+    return { attributes: {}, schemas: {}, scanned: 0, capped: false };
+  }
+  return json.data;
+}
+
+/** Runtime guard: ensures the API returned an array of template stacks. */
+function isTemplateStackArray(x: unknown): x is TemplateStack[] {
+  return Array.isArray(x);
+}
+
+/** Runtime guard: ensures the API returned a valid facets response object. */
+function isFacetsResponse(x: unknown): x is FacetsResponse {
+  return (
+    typeof x === 'object' && x !== null &&
+    'attributes' in x && typeof (x as Record<string, unknown>).attributes === 'object' &&
+    'schemas' in x
+  );
 }
 
 async function fetchStack(
@@ -87,6 +103,7 @@ async function fetchStack(
     owner: account,
     collection_name: filters.collections.join(',') || undefined,
     schema_name: filters.schemas.join(',') || undefined,
+    match: filters.search || undefined,
     sort,
     page,
     limit: 20,
@@ -95,7 +112,11 @@ async function fetchStack(
   const res = await fetch(`/api/stack?${qs}`);
   const json = await res.json();
   if (!json.success) throw new Error(json.error ?? 'Failed to fetch template stacks');
-  return { data: json.data as TemplateStack[], meta: json.meta as StackMeta };
+  if (!isTemplateStackArray(json.data)) {
+    console.error('[fetchStack] unexpected data shape:', typeof json.data);
+    throw new Error('Templates response was not an array');
+  }
+  return { data: json.data, meta: json.meta as StackMeta };
 }
 
 async function fetchCollections(account: string) {
@@ -235,10 +256,14 @@ export default function WalletPage({ params }: WalletPageProps) {
 
   const handleFiltersChange = useCallback((partial: Partial<AssetFilters>) => {
     setFilters((prev) => ({ ...prev, ...partial }));
+    // Reset template stack page whenever any filter changes (otherwise page N
+    // of the new filter is fetched, which may be empty, looking like "no results")
+    setStackPage(1);
   }, []);
 
   const handleClearFilters = useCallback(() => {
     setFilters({ ...DEFAULT_FILTERS });
+    setStackPage(1);
   }, []);
 
   const handleViewToggle = useCallback((mode: 'grid' | 'stack') => {
@@ -294,7 +319,7 @@ export default function WalletPage({ params }: WalletPageProps) {
     error: stackError,
     isFetching: stackFetching,
   } = useQuery({
-    queryKey: ['stack', account, filters.collections, filters.schemas, stackSort, stackPage, stackScanAll],
+    queryKey: ['stack', account, filters.collections, filters.schemas, filters.search, stackSort, stackPage, stackScanAll],
     queryFn: () => fetchStack(account, filters, stackSort, stackPage, stackScanAll),
     enabled: viewMode === 'stack',
     staleTime: 60_000,
