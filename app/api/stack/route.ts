@@ -12,10 +12,12 @@
 //   limit           optional  default 20, max 50
 //   scan_pages      optional  1-10, each page = 1000 assets (default 3 = fast 3000-asset scan)
 //                             Higher values trade latency for completeness.
+//   refresh         optional  bypass cache and re-scan
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssets } from '@/lib/api/atomicassets';
 import { getAssetMedia, getAssetName, type AssetData, type TemplateStack, type StackMeta } from '@/lib/types';
+import { buildCacheKey, cacheGet, cacheSet, CACHE_TTL } from '@/lib/cache';
 
 export const runtime = 'nodejs';
 
@@ -73,6 +75,71 @@ async function collectAssets(params: {
   return { assets: all, capped: false, scanComplete: true };
 }
 
+// ─── Aggregation helpers ──────────────────────────────────────────────────────
+
+interface AggResult {
+  stacks: TemplateStack[];
+  capped: boolean;
+  scanComplete: boolean;
+  totalFetched: number;
+  noTemplateCount: number;
+}
+
+async function buildAggregation(
+  owner: string,
+  collectionName: string | undefined,
+  schemaName: string | undefined,
+  sortKey: string,
+  maxAssets: number,
+): Promise<AggResult> {
+  const { assets, capped, scanComplete } = await collectAssets({
+    owner,
+    collection_name: collectionName,
+    schema_name: schemaName,
+    maxAssets,
+  });
+
+  const templateMap = new Map<string, TemplateStack>();
+  let noTemplateCount = 0;
+
+  for (const asset of assets) {
+    if (!asset.template?.template_id) { noTemplateCount++; continue; }
+    const tid = asset.template.template_id;
+    if (!templateMap.has(tid)) {
+      const { url, type } = getAssetMedia(asset);
+      templateMap.set(tid, {
+        template_id: tid,
+        name: getAssetName(asset),
+        collection_name: asset.collection.collection_name,
+        collection_display_name: asset.collection.name || asset.collection.collection_name,
+        schema_name: asset.schema.schema_name,
+        image_url: url,
+        image_type: type,
+        count: 0,
+        max_supply: asset.template.max_supply,
+        issued_supply: asset.template.issued_supply,
+        sample_asset_ids: [],
+      });
+    }
+    const entry = templateMap.get(tid)!;
+    entry.count++;
+    if (entry.sample_asset_ids.length < 5) entry.sample_asset_ids.push(asset.asset_id);
+  }
+
+  const [sortField, sortDir] = sortKey.split(':');
+  const stacks = Array.from(templateMap.values()).sort((a, b) => {
+    let cmp = 0;
+    if (sortField === 'count') cmp = a.count - b.count;
+    else if (sortField === 'name') cmp = a.name.localeCompare(b.name);
+    else if (sortField === 'template_id') cmp = Number(a.template_id) - Number(b.template_id);
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
+  return { stacks, capped, scanComplete, totalFetched: assets.length, noTemplateCount };
+}
+
+// ─── Route handler ────────────────────────────────────────────────────────────
+
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
 
@@ -86,66 +153,37 @@ export async function GET(req: NextRequest) {
   const sort = searchParams.get('sort') ?? 'count:desc';
   const page = Math.max(1, Number(searchParams.get('page') ?? 1));
   const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') ?? 20)));
+  const refresh = searchParams.get('refresh') === 'true';
 
   // scan_pages controls how many 1000-asset batches to scan.
-  // Default 3 (3000 assets) for fast initial loads; up to 10 (10k assets = MAX_ASSETS).
   const scanPages = Math.min(10, Math.max(1, Number(searchParams.get('scan_pages') ?? 3)));
   const maxAssets = Math.min(MAX_ASSETS, scanPages * BATCH_SIZE);
 
+  // Cache key covers the full sorted template list for this query shape
+  const aggCacheKey = buildCacheKey('stack', {
+    owner,
+    collection_name: collectionName,
+    schema_name: schemaName,
+    sort,
+    scan_pages: scanPages,
+  });
+
   try {
-    const { assets, capped, scanComplete } = await collectAssets({
-      owner,
-      collection_name: collectionName,
-      schema_name: schemaName,
-      maxAssets,
-    });
+    // ── Cache read ────────────────────────────────────────────────────────────
+    let agg: AggResult | null = null;
 
-    // ── Aggregate by template_id ──────────────────────────────────────────────
-    const templateMap = new Map<string, TemplateStack>();
-    let noTemplateCount = 0;
-
-    for (const asset of assets) {
-      if (!asset.template?.template_id) {
-        noTemplateCount++;
-        continue;
-      }
-
-      const tid = asset.template.template_id;
-
-      if (!templateMap.has(tid)) {
-        const { url, type } = getAssetMedia(asset);
-        const name = getAssetName(asset);
-        templateMap.set(tid, {
-          template_id: tid,
-          name,
-          collection_name: asset.collection.collection_name,
-          collection_display_name: asset.collection.name || asset.collection.collection_name,
-          schema_name: asset.schema.schema_name,
-          image_url: url,
-          image_type: type,
-          count: 0,
-          max_supply: asset.template.max_supply,
-          issued_supply: asset.template.issued_supply,
-          sample_asset_ids: [],
-        });
-      }
-
-      const entry = templateMap.get(tid)!;
-      entry.count++;
-      if (entry.sample_asset_ids.length < 5) entry.sample_asset_ids.push(asset.asset_id);
+    if (!refresh) {
+      agg = await cacheGet<AggResult>(aggCacheKey);
     }
 
-    // ── Sort ──────────────────────────────────────────────────────────────────
-    const [sortField, sortDir] = sort.split(':');
-    const stacks = Array.from(templateMap.values()).sort((a, b) => {
-      let cmp = 0;
-      if (sortField === 'count') cmp = a.count - b.count;
-      else if (sortField === 'name') cmp = a.name.localeCompare(b.name);
-      else if (sortField === 'template_id') cmp = Number(a.template_id) - Number(b.template_id);
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
+    // ── Cache miss: compute aggregation ──────────────────────────────────────
+    if (!agg) {
+      agg = await buildAggregation(owner, collectionName, schemaName, sort, maxAssets);
+      await cacheSet(aggCacheKey, agg, CACHE_TTL);
+    }
 
-    // ── Paginate ──────────────────────────────────────────────────────────────
+    // ── Paginate from cached sorted list ─────────────────────────────────────
+    const { stacks, capped, scanComplete, totalFetched, noTemplateCount } = agg;
     const total = stacks.length;
     const start = (page - 1) * limit;
     const pageData = stacks.slice(start, start + limit);
@@ -156,7 +194,7 @@ export async function GET(req: NextRequest) {
       limit,
       capped,
       scanComplete,
-      totalFetched: assets.length,
+      totalFetched,
       noTemplateCount,
     };
 

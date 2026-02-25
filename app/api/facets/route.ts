@@ -4,10 +4,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssets } from '@/lib/api/atomicassets';
+import { buildCacheKey, cacheGet, cacheSet } from '@/lib/cache';
 
 export const runtime = 'nodejs';
 
 const BATCH_SIZE = 1000;
+const FACETS_TTL = 300; // 5 minutes — attribute distribution changes slowly
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -19,6 +21,19 @@ export async function GET(req: NextRequest) {
 
   const collection_name = searchParams.get('collection_name') ?? undefined;
   const schema_name = searchParams.get('schema_name') ?? undefined;
+  const refresh = searchParams.get('refresh') === 'true';
+
+  const cacheKey = buildCacheKey('facets', { owner, collection_name, schema_name });
+
+  if (!refresh) {
+    const cached = await cacheGet<unknown>(cacheKey);
+    if (cached) {
+      return NextResponse.json(
+        { success: true, data: cached },
+        { headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=120', 'X-Cache': 'HIT' } },
+      );
+    }
+  }
 
   try {
     const baseQuery = {
@@ -61,8 +76,11 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const result = { rarity, schemas, scanned, capped };
+    await cacheSet(cacheKey, result, FACETS_TTL);
+
     return NextResponse.json(
-      { success: true, data: { rarity, schemas, scanned, capped } },
+      { success: true, data: result },
       { headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=120' } },
     );
   } catch (err) {

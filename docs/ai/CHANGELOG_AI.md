@@ -5,6 +5,27 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-24 (session 4 — M10: server-side cache)
+
+Added:
+- `lib/cache.ts` — adapter-based TTL cache; in-memory default (2000-key LRU-evicting Map) with optional Redis backend via ioredis (activated when `REDIS_URL` env var is set)
+- `ioredis` dependency (v5) added to package.json; used only when REDIS_URL is configured
+- Cache applied to `/api/assets` (TTL 120s), `/api/facets` (TTL 300s), `/api/stack` (TTL 120s)
+- Stack route now caches the full sorted `TemplateStack[]` and paginates from the cached array (cache key covers owner/collections/schemas/sort/scan_pages; page is NOT in the cache key)
+- `?refresh=true` query param bypasses cache and forces re-fetch on any cached route
+- `X-Cache: HIT` response header on cache hits
+- Generic attribute filters `a.{key}={value}` parsed in `/api/assets` and passed to `getAssets()` as `template_data.{key}={value}` (groundwork for M12)
+- `attr_filters?: Record<string,string>` added to `AssetsQuery` in `lib/api/atomicassets.ts`
+
+Cache strategy:
+- Assets: 120s — repeating the same wallet+filter page is instant
+- Facets: 300s — attribute distribution changes rarely; long TTL acceptable
+- Stack: 120s — aggregation is the slowest operation; all page flips served from cache
+- Redis: prefix `wax:*`; EX TTL passed on every SET; connection failure → in-memory fallback
+- In-memory: module-level global (survives HMR), LRU eviction at 2000 keys
+
+---
+
 ## 2026-02-24 (session 3 — M8: media gallery polish)
 
 Added:

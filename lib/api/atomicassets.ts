@@ -74,6 +74,8 @@ export interface AssetsQuery {
   burned?: boolean;
   /** Server-side rarity filter: maps to template_data.rarity=X on AtomicAssets API */
   attr_rarity?: string;
+  /** Generic attribute filters: maps to template_data.{key}={value} on AtomicAssets API */
+  attr_filters?: Record<string, string>;
   /** Internal: bypass 100-per-page cap (used by stack aggregation only) */
   _uncapped?: boolean;
 }
@@ -114,6 +116,11 @@ export async function getAssets(query: AssetsQuery): Promise<AssetData[]> {
   params.set('limit', String(Math.min(query.limit ?? 40, maxLimit)));
   if (query.burned === true) params.set('burned', 'true');
   if (query.attr_rarity) params.set('template_data.rarity', query.attr_rarity);
+  if (query.attr_filters) {
+    for (const [key, value] of Object.entries(query.attr_filters)) {
+      if (value) params.set(`template_data.${key}`, value);
+    }
+  }
 
   return apiFetch<AssetData[]>(`/assets?${params.toString()}`);
 }
