@@ -131,7 +131,7 @@ export const DEFAULT_FILTERS: AssetFilters = {
   templateId: '',
   showBurned: false,
   mediaType: 'all',
-  sortBy: 'asset_id:desc',
+  sortBy: 'transferred:desc',
   page: 1,
   limit: 40,
 };
