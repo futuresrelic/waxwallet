@@ -5,6 +5,62 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-25 (session 4g — Force refresh, lower ownership TTL, endpoint display)
+
+### Motivation
+Missing assets after transfers — likely served stale cached data. Goals:
+1. Force-refresh button that truly bypasses server cache
+2. Lower ownership data TTL so transfers appear quickly without refresh
+3. Show active AtomicAssets endpoint in wallet header for debugging
+4. Consistent X-Cache + X-Atomic-Endpoint debug headers on all API routes
+
+### Cache TTL changes
+| Route | Old server TTL | New server TTL | Rationale |
+|-------|---------------|---------------|-----------|
+| `/api/assets` | 120 s | **15 s** | Ownership changes on every transfer/burn |
+| `/api/collections` | none (uncached) | **60 s** | Added server cache; collections change infrequently |
+| `/api/stack` aggregation | 120 s | **300 s (5 min)** | Aggregate data; expensive to recompute; refresh button handles staleness |
+| `/api/facets` | 300 s | 300 s (unchanged) | Attribute distribution is stable |
+
+The assets HTTP `Cache-Control s-maxage` was already 15 s but the server-side in-memory
+cache was 120 s — causing CDN cache misses to still return 120-s-old data. Now both are 15 s.
+
+### Force-refresh button (`app/wallet/[account]/page.tsx`)
+- Added "Refresh" button (with `RefreshCw` icon) in the wallet header action row
+- Clicking it: sets `forceRefreshRef.current = true`, then calls
+  `queryClient.invalidateQueries` for assets, stack, facets, and collections
+- All `queryFn` closures read `forceRefreshRef.current` and pass `refresh=true` to the
+  server when true — server skips cache read and fetches fresh from AtomicAssets
+- Flag resets after 3 s (all fetches have started by then)
+- Button is disabled while refreshing or while any fetch is in progress
+- All 4 fetch functions (`fetchAssetsPage`, `fetchStack`, `fetchFacets`, `fetchCollections`)
+  accept a `refresh` boolean param
+
+### Endpoint display
+- Wallet page fetches `/api/health` (30 s stale, 60 s poll) to get `currentEndpoint`
+- Shows `Atomic: <hostname>` below the account name in the header (grey, subtle)
+- Helps diagnose "missing assets" — if one endpoint is stale, the hostname is visible
+
+### Debug response headers (all affected routes)
+All of `/api/assets`, `/api/collections`, `/api/facets`, `/api/stack` now return:
+- `X-Cache: HIT` — served from server-side cache (in-memory or Redis)
+- `X-Cache: MISS` — fetched fresh from AtomicAssets, cache was written
+- `X-Atomic-Endpoint: <url>` — the currently preferred AtomicAssets endpoint
+
+### Collections route: added server-side cache
+`/api/collections` previously had no server cache (only CDN `s-maxage=30`).
+Added `buildCacheKey`/`cacheGet`/`cacheSet` with 60 s TTL and `refresh=true` bypass.
+
+### Files changed
+- `app/api/assets/route.ts` — ASSETS_TTL=15, X-Cache+X-Atomic-Endpoint headers
+- `app/api/collections/route.ts` — server cache (60 s), refresh support, headers
+- `app/api/stack/route.ts` — STACK_AGG_TTL=300, aggFromCache tracker, headers
+- `app/api/facets/route.ts` — X-Atomic-Endpoint added to both hit/miss responses
+- `app/wallet/[account]/page.tsx` — forceRefreshRef, useQueryClient, handleForceRefresh,
+  health query, endpoint display, Refresh button, refresh param on all fetch functions
+
+---
+
 ## 2026-02-25 (session 4f — Fix: collections double-nesting bug / "No collections" shown)
 
 ### Root cause

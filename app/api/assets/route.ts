@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssets } from '@/lib/api/atomicassets';
-import { buildCacheKey, cacheGet, cacheSet, CACHE_TTL } from '@/lib/cache';
+import { buildCacheKey, cacheGet, cacheSet } from '@/lib/cache';
+import { pickEndpoint } from '@/lib/endpoint-pool';
 import type { AssetData } from '@/lib/types';
 
 export const runtime = 'nodejs';
+
+// Ownership data changes frequently (transfers, purchases, burns).
+// Keep the server-side TTL consistent with the HTTP Cache-Control max-age.
+const ASSETS_TTL = 15; // seconds
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -37,12 +42,19 @@ export async function GET(req: NextRequest) {
     ...Object.fromEntries(Object.entries(attrFilters).map(([k, v]) => [`a.${k}`, v])),
   });
 
+  const endpoint = pickEndpoint();
+
   if (!refresh) {
     const cached = await cacheGet<AssetData[]>(cacheKey);
     if (cached) {
       return NextResponse.json(
         { success: true, data: cached },
-        { headers: { 'Cache-Control': 's-maxage=15, stale-while-revalidate=30', 'X-Cache': 'HIT' } },
+        { headers: {
+            'Cache-Control': `s-maxage=${ASSETS_TTL}, stale-while-revalidate=30`,
+            'X-Cache': 'HIT',
+            'X-Atomic-Endpoint': endpoint,
+          },
+        },
       );
     }
   }
@@ -53,11 +65,16 @@ export async function GET(req: NextRequest) {
       sort, page, limit, burned, attr_rarity, attr_filters: attrFilters,
     });
 
-    await cacheSet(cacheKey, assets, CACHE_TTL);
+    await cacheSet(cacheKey, assets, ASSETS_TTL);
 
     return NextResponse.json(
       { success: true, data: assets },
-      { headers: { 'Cache-Control': 's-maxage=15, stale-while-revalidate=30' } },
+      { headers: {
+          'Cache-Control': `s-maxage=${ASSETS_TTL}, stale-while-revalidate=30`,
+          'X-Cache': 'MISS',
+          'X-Atomic-Endpoint': endpoint,
+        },
+      },
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

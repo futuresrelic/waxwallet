@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssets } from '@/lib/api/atomicassets';
 import { buildCacheKey, cacheGet, cacheSet } from '@/lib/cache';
+import { pickEndpoint } from '@/lib/endpoint-pool';
 
 export const runtime = 'nodejs';
 
@@ -50,12 +51,19 @@ export async function GET(req: NextRequest) {
 
   const cacheKey = buildCacheKey('facets', { owner, collection_name, schema_name });
 
+  const endpoint = pickEndpoint();
+
   if (!refresh) {
     const cached = await cacheGet<unknown>(cacheKey);
     if (cached) {
       return NextResponse.json(
         { success: true, data: cached },
-        { headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=120', 'X-Cache': 'HIT' } },
+        { headers: {
+            'Cache-Control': 's-maxage=60, stale-while-revalidate=120',
+            'X-Cache': 'HIT',
+            'X-Atomic-Endpoint': endpoint,
+          },
+        },
       );
     }
   }
@@ -139,7 +147,12 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(
       { success: true, data: result },
-      { headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=120' } },
+      { headers: {
+          'Cache-Control': 's-maxage=60, stale-while-revalidate=120',
+          'X-Cache': 'MISS',
+          'X-Atomic-Endpoint': endpoint,
+        },
+      },
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

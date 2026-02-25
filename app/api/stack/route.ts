@@ -23,8 +23,14 @@ import { getAssets } from '@/lib/api/atomicassets';
 import { getAssetMedia, getAssetName, type AssetData, type TemplateStack, type StackMeta } from '@/lib/types';
 import { buildCacheKey, cacheGet, cacheSet, CACHE_TTL } from '@/lib/cache';
 import { isIndexing, startIndexJob } from '@/lib/index-jobs';
+import { pickEndpoint } from '@/lib/endpoint-pool';
 
 export const runtime = 'nodejs';
+
+// Aggregation cache TTL: 5 minutes — template stacks are aggregate data
+// (not individual ownership) and are expensive to recompute for large wallets.
+// Users can force a fresh fetch via the "Refresh" button (refresh=true).
+const STACK_AGG_TTL = 300; // seconds
 
 // Fetch pages in parallel batches to reduce wall-clock time for large wallets.
 const BATCH_SIZE = 1000;
@@ -257,9 +263,11 @@ export async function GET(req: NextRequest) {
   try {
     // ── Cache read ────────────────────────────────────────────────────────────
     let agg: AggResult | null = null;
+    let aggFromCache = false;
 
     if (!refresh) {
       agg = await cacheGet<AggResult>(aggCacheKey);
+      aggFromCache = agg !== null;
     }
 
     // ── Cache miss handling ───────────────────────────────────────────────────
@@ -270,7 +278,7 @@ export async function GET(req: NextRequest) {
         if (!isIndexing(aggCacheKey)) {
           startIndexJob(aggCacheKey, async () => {
             const result = await buildAggregation(owner, collectionName, schemaName, sort, maxAssets);
-            await cacheSet(aggCacheKey, result, CACHE_TTL);
+            await cacheSet(aggCacheKey, result, STACK_AGG_TTL);
           });
         }
 
@@ -301,15 +309,21 @@ export async function GET(req: NextRequest) {
           indexing: true, // tells the client to poll
         };
 
+        const endpoint = pickEndpoint();
         return NextResponse.json(
           { success: true, data: pageData, meta },
-          { headers: { 'Cache-Control': 'no-store' } },
+          { headers: {
+              'Cache-Control': 'no-store',
+              'X-Cache': 'MISS',
+              'X-Atomic-Endpoint': endpoint,
+            },
+          },
         );
       }
 
       // Normal (fast) blocking scan
       agg = await buildAggregation(owner, collectionName, schemaName, sort, maxAssets);
-      await cacheSet(aggCacheKey, agg, CACHE_TTL);
+      await cacheSet(aggCacheKey, agg, STACK_AGG_TTL);
     }
 
     // ── Paginate from cached sorted list (with attribute + name filters) ──────
@@ -334,9 +348,15 @@ export async function GET(req: NextRequest) {
       indexing: stillIndexing || undefined,
     };
 
+    const endpoint = pickEndpoint();
     return NextResponse.json(
       { success: true, data: pageData, meta },
-      { headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=120' } },
+      { headers: {
+          'Cache-Control': `s-maxage=${STACK_AGG_TTL}, stale-while-revalidate=${STACK_AGG_TTL * 2}`,
+          'X-Cache': aggFromCache ? 'HIT' : 'MISS',
+          'X-Atomic-Endpoint': endpoint,
+        },
+      },
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

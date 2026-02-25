@@ -1,8 +1,8 @@
 'use client';
-import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
-import { Copy, Check, ExternalLink, SlidersHorizontal, X, LayoutGrid, Layers } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Copy, Check, ExternalLink, SlidersHorizontal, X, LayoutGrid, Layers, RefreshCw } from 'lucide-react';
 import { AssetGrid } from '@/components/AssetGrid';
 import { TemplateGrid } from '@/components/TemplateGrid';
 import { FilterPanel } from '@/components/FilterPanel';
@@ -30,7 +30,7 @@ interface WalletPageProps {
 
 // ─── Fetchers ─────────────────────────────────────────────────────────────────
 
-async function fetchAssetsPage(account: string, filters: AssetFilters, page: number): Promise<AssetData[]> {
+async function fetchAssetsPage(account: string, filters: AssetFilters, page: number, refresh = false): Promise<AssetData[]> {
   // Build attribute params as a.{key}=value entries
   const attrParams = Object.fromEntries(
     Object.entries(filters.attributes ?? {}).map(([k, v]) => [`a.${k}`, v]),
@@ -45,6 +45,7 @@ async function fetchAssetsPage(account: string, filters: AssetFilters, page: num
     page,
     limit: filters.limit,
     burned: filters.showBurned ? 'true' : undefined,
+    refresh: refresh ? 'true' : undefined,
     ...attrParams,
   });
   const res = await fetch(`/api/assets?${qs}`);
@@ -64,11 +65,13 @@ async function fetchFacets(
   account: string,
   collections: string[],
   schemas: string[],
+  refresh = false,
 ): Promise<FacetsResponse> {
   const qs = buildQueryString({
     owner: account,
     collection_name: collections.join(',') || undefined,
     schema_name: schemas.join(',') || undefined,
+    refresh: refresh ? 'true' : undefined,
   });
   const res = await fetch(`/api/facets?${qs}`);
   const json = await res.json();
@@ -98,6 +101,7 @@ async function fetchStack(
   sort: StackSortOption,
   page: number,
   scanAll: boolean,
+  refresh = false,
 ): Promise<{ data: TemplateStack[]; meta: StackMeta }> {
   // Build attribute params as a.{key}=value entries (same convention as /api/assets)
   const attrParams = Object.fromEntries(
@@ -112,6 +116,7 @@ async function fetchStack(
     page,
     limit: 20,
     scan_pages: scanAll ? 10 : 3,
+    refresh: refresh ? 'true' : undefined,
     ...attrParams,
   });
   const res = await fetch(`/api/stack?${qs}`);
@@ -124,8 +129,9 @@ async function fetchStack(
   return { data: json.data, meta: json.meta as StackMeta };
 }
 
-async function fetchCollections(account: string) {
-  const res = await fetch(`/api/collections?owner=${account}`);
+async function fetchCollections(account: string, refresh = false) {
+  const qs = refresh ? `owner=${account}&refresh=true` : `owner=${account}`;
+  const res = await fetch(`/api/collections?${qs}`);
   const json = await res.json();
   // Server returns { success, data: { collections: [...] } } after the fix in getAccountSummary.
   // Robust extraction handles both the corrected shape and any stale/cached double-nested shape:
@@ -258,6 +264,12 @@ export default function WalletPage({ params }: WalletPageProps) {
   const [stackScanAll, setStackScanAll] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Ref that is briefly true while a force-refresh is in flight; queryFns read it
+  // when triggered by queryClient.invalidateQueries to pass refresh=true to the server.
+  const forceRefreshRef = useRef(false);
+  const queryClient = useQueryClient();
 
   // Sync all state to URL (page number not synced for grid — uses infinite scroll).
   // Skip router.replace when the URL is already correct to avoid spurious navigation
@@ -289,11 +301,30 @@ export default function WalletPage({ params }: WalletPageProps) {
     if (mode === 'stack') { setStackPage(1); setStackScanAll(false); }
   }, []);
 
+  // Force-refresh: bypass server cache for all wallet data queries.
+  // Sets forceRefreshRef so queryFns pass refresh=true to server on the next call,
+  // then invalidates queries to trigger immediate refetch.
+  const handleForceRefresh = useCallback(() => {
+    if (isRefreshing) return;
+    forceRefreshRef.current = true;
+    setIsRefreshing(true);
+    void queryClient.invalidateQueries({ queryKey: ['assets', account] });
+    void queryClient.invalidateQueries({ queryKey: ['stack', account] });
+    void queryClient.invalidateQueries({ queryKey: ['facets', account] });
+    void queryClient.invalidateQueries({ queryKey: ['collections', account] });
+    // Reset after queries have had time to start (the flag only needs to be true
+    // until each queryFn is invoked, which happens synchronously after invalidation).
+    setTimeout(() => {
+      forceRefreshRef.current = false;
+      setIsRefreshing(false);
+    }, 3000);
+  }, [isRefreshing, queryClient, account]);
+
   // ── Data queries ────────────────────────────────────────────────────────────
 
   const { data: collections = [] } = useQuery({
     queryKey: ['collections', account],
-    queryFn: () => fetchCollections(account),
+    queryFn: () => fetchCollections(account, forceRefreshRef.current),
     staleTime: 60_000,
   });
 
@@ -324,7 +355,7 @@ export default function WalletPage({ params }: WalletPageProps) {
       filters.attributes,
       filters.page,
     ],
-    queryFn: () => fetchAssetsPage(account, filters, filters.page),
+    queryFn: () => fetchAssetsPage(account, filters, filters.page, forceRefreshRef.current),
     enabled: viewMode === 'grid',
     staleTime: 15_000,
     placeholderData: (prev) => prev, // keep previous page data while loading next
@@ -338,7 +369,7 @@ export default function WalletPage({ params }: WalletPageProps) {
     isFetching: stackFetching,
   } = useQuery({
     queryKey: ['stack', account, filters.collections, filters.schemas, filters.attributes, filters.search, stackSort, stackPage, stackScanAll],
-    queryFn: () => fetchStack(account, filters, stackSort, stackPage, stackScanAll),
+    queryFn: () => fetchStack(account, filters, stackSort, stackPage, stackScanAll, forceRefreshRef.current),
     enabled: viewMode === 'stack',
     staleTime: 60_000,
     // Auto-poll every 3s while the server is indexing the full wallet in the background
@@ -348,7 +379,7 @@ export default function WalletPage({ params }: WalletPageProps) {
   // Dynamic attribute facets (server-backed counts)
   const { data: facetsData } = useQuery({
     queryKey: ['facets', account, filters.collections, filters.schemas],
-    queryFn: () => fetchFacets(account, filters.collections, filters.schemas),
+    queryFn: () => fetchFacets(account, filters.collections, filters.schemas, forceRefreshRef.current),
     staleTime: 60_000,
   });
 
@@ -357,6 +388,18 @@ export default function WalletPage({ params }: WalletPageProps) {
     queryKey: ['templateLinks'],
     queryFn: fetchTemplateLinks,
     staleTime: 300_000,
+  });
+
+  // Current AtomicAssets endpoint (for display in header)
+  const { data: healthData } = useQuery({
+    queryKey: ['health'],
+    queryFn: async () => {
+      const res = await fetch('/api/health');
+      const json = await res.json() as { data?: { currentEndpoint?: string } };
+      return json.data ?? null;
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
   });
 
   // Group template links by template_id to support multiple links per template
@@ -432,6 +475,12 @@ export default function WalletPage({ params }: WalletPageProps) {
               </>
             )}
           </p>
+          {/* Atomic endpoint indicator */}
+          {healthData?.currentEndpoint && (
+            <p className="text-xs text-zinc-600" title="Active AtomicAssets indexer endpoint">
+              Atomic: {(() => { try { return new URL(healthData.currentEndpoint).hostname; } catch { return healthData.currentEndpoint; } })()}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -462,6 +511,18 @@ export default function WalletPage({ params }: WalletPageProps) {
               <span className="hidden sm:inline">Templates</span>
             </button>
           </div>
+
+          {/* Force-refresh button: bypasses server cache for all wallet data */}
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleForceRefresh}
+            disabled={isRefreshing || isFetching}
+            title="Bypass server cache and fetch latest data from AtomicAssets"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Refresh</span>
+          </Button>
 
           <Button
             variant="secondary"
