@@ -5,6 +5,29 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-25 (session 4 — M12: dynamic attribute discovery)
+
+Added:
+- Dynamic attribute facet discovery in `/api/facets` — scans all string fields in asset data, applies cardinality (≤20 unique values) + coverage (≥5% of scanned assets) filters, returns top 8 fields as `attributes: Record<fieldName, Record<value, count>>`
+- `SKIP_FIELDS` set in facets route — ignores img/video/IPFS/URL/metadata fields that are not useful as filters
+- `toggleAttribute(key, value)` in `FilterPanel` — generic attribute toggle that updates `filters.attributes` record
+- Dynamic attribute sections in FilterPanel — renders one chip group per discovered attribute key; label uses `key.replace(/_/g, ' ')`
+- `attributes?: Record<string, string>` field on `AssetFilters` (replaces `rarity?: string`)
+
+Changed:
+- `lib/types.ts`: `rarity?: string` → `attributes?: Record<string, string>` in `AssetFilters`
+- `app/api/facets/route.ts`: full rewrite — old `{ rarity, schemas, scanned, capped }` → `{ attributes, schemas, scanned, capped }`; `rarity` is now one of the discovered attribute keys if it meets cardinality/coverage criteria
+- `components/FilterPanel.tsx`: props `rarityFacets/rarityScanned/rarityCapped` → `attributeFacets/facetsScanned/facetsCapped`; dynamic section rendering; `hasActiveFilters` checks `Object.keys(filters.attributes ?? {}).length`
+- `app/wallet/[account]/page.tsx`: `fetchAssetsPage` passes `a.{key}=value` for each attribute (already handled by /api/assets route from M10); `fetchFacets` return type updated; `infiniteKey` uses `attributes`; URL parsing/serialization updated for `a.{key}` params; FilterPanel props shared via `filterPanelProps` object
+- Removed `rarityFacets` computed memo from wallet page
+
+Migration notes:
+- `/api/facets` response shape changed — clients reading `data.rarity` will get undefined; `data.attributes.rarity` is the new path if rarity qualifies as a low-cardinality field
+- Old `?rarity=X` URL params no longer work — replaced by `?a.rarity=X` (new format)
+- Different wallets/collections will show entirely different filter sections depending on which attributes their NFTs use
+
+---
+
 ## 2026-02-25 (session 4 — M11: background full-wallet indexing)
 
 Added:

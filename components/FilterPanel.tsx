@@ -12,15 +12,25 @@ interface FilterPanelProps {
   collections: Array<{ collection: { collection_name: string; name: string }; assets: number }>;
   schemas: Array<{ schema_name: string }>;
   onClear: () => void;
-  /** Server-backed rarity facets with counts — shown when non-empty */
-  rarityFacets?: { value: string; count: number }[];
-  rarityScanned?: number;
-  rarityCapped?: boolean;
+  /** Dynamic attribute facets: fieldName → { value → count }; rendered automatically */
+  attributeFacets?: Record<string, Record<string, number>>;
+  facetsScanned?: number;
+  facetsCapped?: boolean;
   /** Schema asset counts from facets scan — shown next to schema chips */
   schemaCounts?: Record<string, number>;
 }
 
-export function FilterPanel({ filters, onChange, collections, schemas, onClear, rarityFacets = [], rarityScanned, rarityCapped, schemaCounts }: FilterPanelProps) {
+export function FilterPanel({
+  filters,
+  onChange,
+  collections,
+  schemas,
+  onClear,
+  attributeFacets = {},
+  facetsScanned,
+  facetsCapped,
+  schemaCounts,
+}: FilterPanelProps) {
   const [searchValue, setSearchValue] = useState(filters.search);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -54,6 +64,17 @@ export function FilterPanel({ filters, onChange, collections, schemas, onClear, 
     onChange({ schemas: next, page: 1 });
   };
 
+  const toggleAttribute = (key: string, value: string) => {
+    const current = filters.attributes ?? {};
+    const next = { ...current };
+    if (next[key] === value) {
+      delete next[key];
+    } else {
+      next[key] = value;
+    }
+    onChange({ attributes: Object.keys(next).length > 0 ? next : undefined, page: 1 });
+  };
+
   const hasActiveFilters =
     filters.search ||
     filters.collections.length > 0 ||
@@ -61,7 +82,9 @@ export function FilterPanel({ filters, onChange, collections, schemas, onClear, 
     filters.templateId ||
     filters.showBurned ||
     filters.mediaType !== 'all' ||
-    !!filters.rarity;
+    Object.keys(filters.attributes ?? {}).length > 0;
+
+  const attributeEntries = Object.entries(attributeFacets);
 
   return (
     <div className="flex flex-col gap-4">
@@ -197,30 +220,37 @@ export function FilterPanel({ filters, onChange, collections, schemas, onClear, 
         />
       </div>
 
-      {/* Rarity — server-backed facet counts */}
-      {rarityFacets.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs text-zinc-500 uppercase tracking-wide">Rarity</label>
-          <div className="flex flex-wrap gap-1.5">
-            {rarityFacets.map(({ value, count }) => (
-              <button
-                key={value}
-                onClick={() => onChange({ rarity: filters.rarity === value ? undefined : value, page: 1 })}
-                className={cn(
-                  'text-xs px-2.5 py-1 rounded-full border transition-colors',
-                  filters.rarity === value
-                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
-                    : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white',
-                )}
-              >
-                {value} <span className="opacity-60">({count})</span>
-              </button>
-            ))}
+      {/* Dynamic attribute filters — one section per discovered attribute field */}
+      {attributeEntries.map(([key, valueCounts]) => {
+        const selected = filters.attributes?.[key];
+        return (
+          <div key={key} className="flex flex-col gap-1.5">
+            <label className="text-xs text-zinc-500 uppercase tracking-wide">
+              {key.replace(/_/g, ' ')}
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(valueCounts).map(([value, count]) => (
+                <button
+                  key={value}
+                  onClick={() => toggleAttribute(key, value)}
+                  className={cn(
+                    'text-xs px-2.5 py-1 rounded-full border transition-colors',
+                    selected === value
+                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                      : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white',
+                  )}
+                >
+                  {value} <span className="opacity-60">({count})</span>
+                </button>
+              ))}
+            </div>
           </div>
-          {rarityCapped && rarityScanned && (
-            <p className="text-[10px] text-zinc-600">Sampled from first {rarityScanned.toLocaleString()} assets</p>
-          )}
-        </div>
+        );
+      })}
+      {facetsCapped && facetsScanned && attributeEntries.length > 0 && (
+        <p className="text-[10px] text-zinc-600">
+          Attributes sampled from first {facetsScanned.toLocaleString()} assets
+        </p>
       )}
 
       {/* Clear */}

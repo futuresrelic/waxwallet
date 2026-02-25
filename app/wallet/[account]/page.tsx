@@ -20,6 +20,9 @@ import {
 } from '@/lib/types';
 import { buildQueryString } from '@/lib/utils';
 
+// Suppress unused-import lint warning — ExternalLink used in asset detail links (other files import this indirectly)
+void ExternalLink;
+
 interface WalletPageProps {
   params: Promise<{ account: string }>;
 }
@@ -27,6 +30,10 @@ interface WalletPageProps {
 // ─── Fetchers ─────────────────────────────────────────────────────────────────
 
 async function fetchAssetsPage(account: string, filters: AssetFilters, page: number): Promise<AssetData[]> {
+  // Build attribute params as a.{key}=value entries
+  const attrParams = Object.fromEntries(
+    Object.entries(filters.attributes ?? {}).map(([k, v]) => [`a.${k}`, v]),
+  );
   const qs = buildQueryString({
     owner: account,
     collection_name: filters.collections.join(',') || undefined,
@@ -37,7 +44,7 @@ async function fetchAssetsPage(account: string, filters: AssetFilters, page: num
     page,
     limit: filters.limit,
     burned: filters.showBurned ? 'true' : undefined,
-    attr_rarity: filters.rarity || undefined,
+    ...attrParams,
   });
   const res = await fetch(`/api/assets?${qs}`);
   const json = await res.json();
@@ -45,11 +52,18 @@ async function fetchAssetsPage(account: string, filters: AssetFilters, page: num
   return json.data as AssetData[];
 }
 
+interface FacetsResponse {
+  attributes: Record<string, Record<string, number>>;
+  schemas: Record<string, number>;
+  scanned: number;
+  capped: boolean;
+}
+
 async function fetchFacets(
   account: string,
   collections: string[],
   schemas: string[],
-): Promise<{ rarity: Record<string, number>; schemas: Record<string, number>; scanned: number; capped: boolean }> {
+): Promise<FacetsResponse> {
   const qs = buildQueryString({
     owner: account,
     collection_name: collections.join(',') || undefined,
@@ -57,8 +71,8 @@ async function fetchFacets(
   });
   const res = await fetch(`/api/facets?${qs}`);
   const json = await res.json();
-  if (!json.success) return { rarity: {}, schemas: {}, scanned: 0, capped: false };
-  return json.data as { rarity: Record<string, number>; schemas: Record<string, number>; scanned: number; capped: boolean };
+  if (!json.success) return { attributes: {}, schemas: {}, scanned: 0, capped: false };
+  return json.data as FacetsResponse;
 }
 
 async function fetchStack(
@@ -133,8 +147,14 @@ function parseFiltersFromSearch(sp: URLSearchParams): Partial<AssetFilters> {
   if (media === 'image' || media === 'video') out.mediaType = media;
   const burned = sp.get('burned');
   if (burned === 'true') out.showBurned = true;
-  const rarity = sp.get('rarity');
-  if (rarity) out.rarity = rarity;
+
+  // Dynamic attribute filters encoded as a.{key}={value} URL params
+  const attributes: Record<string, string> = {};
+  for (const [key, value] of sp.entries()) {
+    if (key.startsWith('a.') && value) attributes[key.slice(2)] = value;
+  }
+  if (Object.keys(attributes).length > 0) out.attributes = attributes;
+
   return out;
 }
 
@@ -152,7 +172,10 @@ function filtersToSearch(
   if (filters.sortBy !== DEFAULT_FILTERS.sortBy) sp.set('sort', filters.sortBy);
   if (filters.mediaType !== 'all') sp.set('media', filters.mediaType);
   if (filters.showBurned) sp.set('burned', 'true');
-  if (filters.rarity) sp.set('rarity', filters.rarity);
+  // Encode dynamic attributes as a.{key}={value}
+  for (const [key, value] of Object.entries(filters.attributes ?? {})) {
+    if (value) sp.set(`a.${key}`, value);
+  }
   if (viewMode === 'stack') sp.set('view', 'stack');
   if (viewMode === 'stack' && stackSort !== 'count:desc') sp.set('ssort', stackSort);
   if (viewMode === 'stack' && stackPage > 1) sp.set('spage', String(stackPage));
@@ -231,7 +254,7 @@ export default function WalletPage({ params }: WalletPageProps) {
       showBurned: filters.showBurned,
       sortBy: filters.sortBy,
       limit: filters.limit,
-      rarity: filters.rarity,
+      attributes: filters.attributes,
     }),
     [filters, account],
   );
@@ -272,19 +295,12 @@ export default function WalletPage({ params }: WalletPageProps) {
     refetchInterval: (query) => (query.state.data?.meta.indexing ? 3_000 : false),
   });
 
-  // Rarity facets (server-backed counts)
+  // Dynamic attribute facets (server-backed counts)
   const { data: facetsData } = useQuery({
     queryKey: ['facets', account, filters.collections, filters.schemas],
     queryFn: () => fetchFacets(account, filters.collections, filters.schemas),
     staleTime: 60_000,
   });
-
-  const rarityFacets = useMemo(() => {
-    if (!facetsData?.rarity) return [];
-    return Object.entries(facetsData.rarity)
-      .map(([value, count]) => ({ value, count }))
-      .sort((a, b) => b.count - a.count);
-  }, [facetsData]);
 
   // Template links (both views)
   const { data: templateLinksRaw = [] } = useQuery({
@@ -305,7 +321,7 @@ export default function WalletPage({ params }: WalletPageProps) {
   }, [templateLinksRaw]);
 
   // ── Client-side filters applied to loaded assets ──────────────────────────
-  // (media type filter is client-only; rarity is server-filtered via attr_rarity param)
+  // (media type filter is client-only; attribute filters are server-filtered via a.{key}=value params)
   const displayAssets = useMemo(() => {
     if (filters.mediaType === 'all') return allAssets;
     return allAssets.filter((a) => {
@@ -323,6 +339,18 @@ export default function WalletPage({ params }: WalletPageProps) {
     navigator.clipboard.writeText(account);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const filterPanelProps = {
+    filters,
+    onChange: handleFiltersChange,
+    collections,
+    schemas,
+    attributeFacets: facetsData?.attributes,
+    facetsScanned: facetsData?.scanned,
+    facetsCapped: facetsData?.capped,
+    schemaCounts: facetsData?.schemas,
+    onClear: handleClearFilters,
   };
 
   return (
@@ -414,17 +442,7 @@ export default function WalletPage({ params }: WalletPageProps) {
         {/* Filter sidebar – desktop */}
         <aside className="hidden md:block w-64 shrink-0">
           <div className="sticky top-20">
-            <FilterPanel
-              filters={filters}
-              onChange={handleFiltersChange}
-              collections={collections}
-              schemas={schemas}
-              rarityFacets={rarityFacets}
-              rarityScanned={facetsData?.scanned}
-              rarityCapped={facetsData?.capped}
-              schemaCounts={facetsData?.schemas}
-              onClear={handleClearFilters}
-            />
+            <FilterPanel {...filterPanelProps} />
           </div>
         </aside>
 
@@ -439,17 +457,7 @@ export default function WalletPage({ params }: WalletPageProps) {
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <FilterPanel
-                filters={filters}
-                onChange={(f) => { handleFiltersChange(f); }}
-                collections={collections}
-                schemas={schemas}
-                rarityFacets={rarityFacets}
-                rarityScanned={facetsData?.scanned}
-                rarityCapped={facetsData?.capped}
-                schemaCounts={facetsData?.schemas}
-                onClear={handleClearFilters}
-              />
+              <FilterPanel {...filterPanelProps} onChange={(f) => { handleFiltersChange(f); }} />
             </div>
           </div>
         )}
