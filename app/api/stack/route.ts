@@ -11,13 +11,15 @@
 //   page            optional  default 1
 //   limit           optional  default 20, max 50
 //   scan_pages      optional  1-10, each page = 1000 assets (default 3 = fast 3000-asset scan)
-//                             Higher values trade latency for completeness.
+//                             When scan_pages >= 10, the full scan runs in the background
+//                             and partial results are returned immediately with meta.indexing=true.
 //   refresh         optional  bypass cache and re-scan
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssets } from '@/lib/api/atomicassets';
 import { getAssetMedia, getAssetName, type AssetData, type TemplateStack, type StackMeta } from '@/lib/types';
 import { buildCacheKey, cacheGet, cacheSet, CACHE_TTL } from '@/lib/cache';
+import { isIndexing, startIndexJob } from '@/lib/index-jobs';
 
 export const runtime = 'nodejs';
 
@@ -25,6 +27,7 @@ export const runtime = 'nodejs';
 const BATCH_SIZE = 1000;
 const MAX_ASSETS = 10_000; // safety ceiling; show capped warning above this
 const PARALLEL = 3;        // pages fetched simultaneously per round
+const FAST_SCAN_PAGES = 3; // default fast-scan (3 000 assets)
 
 async function collectAssets(params: {
   owner: string;
@@ -156,8 +159,9 @@ export async function GET(req: NextRequest) {
   const refresh = searchParams.get('refresh') === 'true';
 
   // scan_pages controls how many 1000-asset batches to scan.
-  const scanPages = Math.min(10, Math.max(1, Number(searchParams.get('scan_pages') ?? 3)));
+  const scanPages = Math.min(10, Math.max(1, Number(searchParams.get('scan_pages') ?? FAST_SCAN_PAGES)));
   const maxAssets = Math.min(MAX_ASSETS, scanPages * BATCH_SIZE);
+  const isFullScan = scanPages >= 10;
 
   // Cache key covers the full sorted template list for this query shape
   const aggCacheKey = buildCacheKey('stack', {
@@ -168,6 +172,15 @@ export async function GET(req: NextRequest) {
     scan_pages: scanPages,
   });
 
+  // Fast-scan cache key (always available as partial data fallback)
+  const fastCacheKey = buildCacheKey('stack', {
+    owner,
+    collection_name: collectionName,
+    schema_name: schemaName,
+    sort,
+    scan_pages: FAST_SCAN_PAGES,
+  });
+
   try {
     // ── Cache read ────────────────────────────────────────────────────────────
     let agg: AggResult | null = null;
@@ -176,8 +189,51 @@ export async function GET(req: NextRequest) {
       agg = await cacheGet<AggResult>(aggCacheKey);
     }
 
-    // ── Cache miss: compute aggregation ──────────────────────────────────────
+    // ── Cache miss handling ───────────────────────────────────────────────────
     if (!agg) {
+      if (isFullScan) {
+        // Background mode: fire-and-forget full scan, return partial data immediately.
+        // This prevents the client from blocking for 10+ seconds on large wallets.
+        if (!isIndexing(aggCacheKey)) {
+          startIndexJob(aggCacheKey, async () => {
+            const result = await buildAggregation(owner, collectionName, schemaName, sort, maxAssets);
+            await cacheSet(aggCacheKey, result, CACHE_TTL);
+          });
+        }
+
+        // Try to return fast-scan partial data while the background job runs.
+        // If fast-scan is also uncached, perform it inline (quick: 3 pages = ~3s).
+        let partial = await cacheGet<AggResult>(fastCacheKey);
+        if (!partial) {
+          partial = await buildAggregation(
+            owner, collectionName, schemaName, sort, FAST_SCAN_PAGES * BATCH_SIZE,
+          );
+          await cacheSet(fastCacheKey, partial, CACHE_TTL);
+        }
+
+        const { stacks, capped, scanComplete, totalFetched, noTemplateCount } = partial;
+        const total = stacks.length;
+        const start = (page - 1) * limit;
+        const pageData = stacks.slice(start, start + limit);
+
+        const meta: StackMeta = {
+          total,
+          page,
+          limit,
+          capped,
+          scanComplete,
+          totalFetched,
+          noTemplateCount,
+          indexing: true, // tells the client to poll
+        };
+
+        return NextResponse.json(
+          { success: true, data: pageData, meta },
+          { headers: { 'Cache-Control': 'no-store' } },
+        );
+      }
+
+      // Normal (fast) blocking scan
       agg = await buildAggregation(owner, collectionName, schemaName, sort, maxAssets);
       await cacheSet(aggCacheKey, agg, CACHE_TTL);
     }
@@ -188,6 +244,9 @@ export async function GET(req: NextRequest) {
     const start = (page - 1) * limit;
     const pageData = stacks.slice(start, start + limit);
 
+    // Still indexing if the background job is running (e.g. user refreshed before done)
+    const stillIndexing = isFullScan && isIndexing(aggCacheKey);
+
     const meta: StackMeta = {
       total,
       page,
@@ -196,6 +255,7 @@ export async function GET(req: NextRequest) {
       scanComplete,
       totalFetched,
       noTemplateCount,
+      indexing: stillIndexing || undefined,
     };
 
     return NextResponse.json(

@@ -5,6 +5,27 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-25 (session 4 — M11: background full-wallet indexing)
+
+Added:
+- `lib/index-jobs.ts` — module-level in-process job tracker; `isIndexing(key)` + `startIndexJob(key, fn)` prevent duplicate scans; jobs stored on `global._waxJobs` (survives HMR)
+- `indexing?: boolean` field added to `StackMeta` in `lib/types.ts` — signals client to poll
+- Background scan logic in `/api/stack`: when `scan_pages=10` (full wallet) and cache miss, fires background `buildAggregation()`, immediately returns fast-scan (3-page) partial data with `meta.indexing: true`
+- Auto-poll in wallet page: `refetchInterval: (q) => q.state.data?.meta.indexing ? 3000 : false`
+- `TemplateGrid` indexing banner: amber "Scanning wallet in background..." bar with spinner while `meta.indexing`; "Load complete wallet" button hidden during active indexing
+
+Changed:
+- `app/api/stack/route.ts`: extracted fast/full cache key separation; background job path returns `Cache-Control: no-store` (partial data should not be edge-cached); normal path unchanged
+- `components/TemplateGrid.tsx`: added `Loader2` import; indexing banner; "Load complete wallet" hidden while indexing
+- `app/wallet/[account]/page.tsx`: added `refetchInterval` to stack query
+
+Behaviour:
+- User clicks "Load complete wallet" → `scan_pages=10` sent → server starts background scan → returns 3-page partial immediately → client polls every 3s → when background scan writes to cache, next poll returns full result + `indexing: undefined` → polling stops
+- If fast-scan is also uncached on first click: inline 3-page scan runs (fast, ~3s) before returning; result cached for future polls
+- If process restarts mid-indexing: job map is cleared; next poll triggers a new background scan transparently
+
+---
+
 ## 2026-02-24 (session 4 — M10: server-side cache)
 
 Added:

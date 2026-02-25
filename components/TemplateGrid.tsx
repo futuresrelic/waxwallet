@@ -1,5 +1,5 @@
 'use client';
-import { ChevronLeft, ChevronRight, AlertTriangle, Info, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, AlertTriangle, Info, RefreshCw, Loader2 } from 'lucide-react';
 import { TemplateCard } from './TemplateCard';
 import { PageSpinner } from './ui/Spinner';
 import { Button } from './ui/Button';
@@ -63,9 +63,18 @@ export function TemplateGrid({
 
   // Scan was limited by scan_pages (not scanComplete), and didn't hit the hard MAX_ASSETS cap
   const scanIncomplete = meta && !meta.scanComplete && !meta.capped;
+  const indexing = meta?.indexing === true;
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Background indexing banner */}
+      {indexing && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-400">
+          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+          Scanning complete wallet in the background — results will update automatically
+        </div>
+      )}
+
       {/* Toolbar: count + scan status + sort */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
@@ -78,7 +87,7 @@ export function TemplateGrid({
               Large wallet — capped at {meta.totalFetched.toLocaleString()} assets
             </span>
           )}
-          {scanIncomplete && (
+          {scanIncomplete && !indexing && (
             <span className="flex items-center gap-1 text-xs text-zinc-400">
               <Info className="w-3 h-3" />
               From first {meta!.totalFetched.toLocaleString()} assets
@@ -86,7 +95,7 @@ export function TemplateGrid({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {scanIncomplete && onLoadAll && (
+          {scanIncomplete && !indexing && onLoadAll && (
             <Button
               variant="secondary"
               size="sm"

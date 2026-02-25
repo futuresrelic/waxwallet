@@ -268,6 +268,8 @@ export default function WalletPage({ params }: WalletPageProps) {
     queryFn: () => fetchStack(account, filters, stackSort, stackPage, stackScanAll),
     enabled: viewMode === 'stack',
     staleTime: 60_000,
+    // Auto-poll every 3s while the server is indexing the full wallet in the background
+    refetchInterval: (query) => (query.state.data?.meta.indexing ? 3_000 : false),
   });
 
   // Rarity facets (server-backed counts)

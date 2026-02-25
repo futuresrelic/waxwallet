@@ -180,6 +180,8 @@ export interface StackMeta {
   noTemplateCount: number;
   /** true when all wallet assets were scanned (not limited by scan_pages or MAX_ASSETS) */
   scanComplete: boolean;
+  /** true when a full-wallet background scan is in progress; client should poll */
+  indexing?: boolean;
 }
 
 // ─── Template Links ────────────────────────────────────────────────────────────
