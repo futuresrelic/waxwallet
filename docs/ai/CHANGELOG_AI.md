@@ -5,6 +5,35 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-02-25 (session 4 — M13: full URL state sync)
+
+Added:
+- Sort value validation in `parseFiltersFromSearch` — only values present in `SORT_OPTIONS` are accepted; invalid URL params ignored (prevents injection of bad sort keys)
+- Backward-compat parsing: old `?rarity=X` URL format (pre-M12 bookmarks/links) → `attributes.rarity = X`
+- Idempotent URL sync: `useEffect` compares `window.location.pathname + search` to `newUrl` before calling `router.replace`; skips replace if URL already matches, preventing spurious navigation entries and initial-render flash
+
+Changed:
+- `app/wallet/[account]/page.tsx`: `SORT_OPTIONS` added to imports; `parseFiltersFromSearch` validates sort + parses legacy rarity; URL sync effect guards with `if (newUrl !== currentUrl)`
+
+State coverage (all URL-synced):
+| State              | URL param          |
+|--------------------|--------------------|
+| search             | `q`                |
+| collections        | `c` (comma-sep)    |
+| schemas            | `s` (comma-sep)    |
+| templateId         | `t`                |
+| sortBy             | `sort` (omitted if default) |
+| mediaType          | `media`            |
+| showBurned         | `burned=true`      |
+| attributes         | `a.{key}={value}`  |
+| viewMode           | `view=stack`       |
+| stackSort          | `ssort`            |
+| stackPage          | `spage`            |
+
+Not in URL (intentional): `stackScanAll` (transient), `showFilterPanel` (UI), `limit` (always 40)
+
+---
+
 ## 2026-02-25 (session 4 — M12: dynamic attribute discovery)
 
 Added:

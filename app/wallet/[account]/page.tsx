@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import {
   DEFAULT_FILTERS,
+  SORT_OPTIONS,
   STACK_SORT_OPTIONS,
   type AssetFilters,
   type AssetData,
@@ -141,8 +142,11 @@ function parseFiltersFromSearch(sp: URLSearchParams): Partial<AssetFilters> {
   if (schemas) out.schemas = schemas.split(',').filter(Boolean);
   const tid = sp.get('t');
   if (tid) out.templateId = tid;
+  // Validate sort value against known options to prevent injection of bad values
   const sort = sp.get('sort');
-  if (sort) out.sortBy = sort as AssetFilters['sortBy'];
+  if (sort && SORT_OPTIONS.some((o) => o.value === sort)) {
+    out.sortBy = sort as AssetFilters['sortBy'];
+  }
   const media = sp.get('media');
   if (media === 'image' || media === 'video') out.mediaType = media;
   const burned = sp.get('burned');
@@ -153,6 +157,10 @@ function parseFiltersFromSearch(sp: URLSearchParams): Partial<AssetFilters> {
   for (const [key, value] of sp.entries()) {
     if (key.startsWith('a.') && value) attributes[key.slice(2)] = value;
   }
+  // Backward compat: old ?rarity=X format → attributes.rarity (pre-M12 bookmarks)
+  const legacyRarity = sp.get('rarity');
+  if (legacyRarity && !attributes.rarity) attributes.rarity = legacyRarity;
+
   if (Object.keys(attributes).length > 0) out.attributes = attributes;
 
   return out;
@@ -206,12 +214,17 @@ export default function WalletPage({ params }: WalletPageProps) {
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Sync all state to URL (page number not synced for grid — uses infinite scroll)
+  // Sync all state to URL (page number not synced for grid — uses infinite scroll).
+  // Skip router.replace when the URL is already correct to avoid spurious navigation
+  // entries and initial-render flicker.
   useEffect(() => {
     const sp = filtersToSearch(filters, viewMode, stackSort, stackPage);
     const qs = sp.toString();
     const newUrl = qs ? `${pathname}?${qs}` : pathname;
-    router.replace(newUrl, { scroll: false });
+    const currentUrl = window.location.pathname + (window.location.search || '');
+    if (newUrl !== currentUrl) {
+      router.replace(newUrl, { scroll: false });
+    }
   }, [filters, viewMode, stackSort, stackPage, pathname, router]);
 
   const handleFiltersChange = useCallback((partial: Partial<AssetFilters>) => {
