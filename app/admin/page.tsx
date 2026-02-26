@@ -4,7 +4,7 @@ import {
   Shield, RefreshCw, Save, Plus, Trash2,
   CheckCircle, XCircle, Loader2, LogOut,
   ExternalLink, ToggleLeft, ToggleRight,
-  Download, Upload, Search,
+  Download, Upload, Search, Palette,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -35,6 +35,22 @@ interface Config {
   blockedCollections: string[];
   blockedTemplates: string[];
 }
+
+interface BrandingData {
+  siteTitle: string;
+  pwaName: string;
+  pwaShortName: string;
+  primaryColor: string;
+  accentColor: string;
+}
+
+const BRANDING_IMAGES = [
+  { name: 'logo.png', label: 'Logo', urlKey: 'logoUrl', hint: 'Square PNG shown in app header' },
+  { name: 'favicon.png', label: 'Favicon', urlKey: 'faviconUrl', hint: '32×32 or 64×64 PNG' },
+  { name: 'pwa-192.png', label: 'PWA Icon 192', urlKey: 'pwaIcon192Url', hint: '192×192 PNG for Android' },
+  { name: 'pwa-512.png', label: 'PWA Icon 512', urlKey: 'pwaIcon512Url', hint: '512×512 PNG for install' },
+  { name: 'apple-touch-icon.png', label: 'Apple Touch Icon', urlKey: 'appleTouchIconUrl', hint: '180×180 PNG for iOS' },
+] as const;
 
 function formatUptime(s: number): string {
   if (s < 60) return `${s}s`;
@@ -69,6 +85,27 @@ export default function AdminPage() {
   const [importing, setImporting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
+  // Branding
+  const [branding, setBranding] = useState<BrandingData>({
+    siteTitle: 'WAX Wallet Viewer',
+    pwaName: 'WAX Wallet Viewer',
+    pwaShortName: 'WAX Wallet',
+    primaryColor: '#f59e0b',
+    accentColor: '#92400e',
+  });
+  const [brandingUrls, setBrandingUrls] = useState<Record<string, string | null>>({
+    logoUrl: null,
+    faviconUrl: null,
+    pwaIcon192Url: null,
+    pwaIcon512Url: null,
+    appleTouchIconUrl: null,
+  });
+  const [brandingSaving, setBrandingSaving] = useState(false);
+  const [brandingMsg, setBrandingMsg] = useState('');
+  const [brandingUploading, setBrandingUploading] = useState<string | null>(null);
+  const brandingFileInputRef = useRef<HTMLInputElement>(null);
+  const brandingTargetRef = useRef<string>('');
+
   // Check if already authed by trying to load config
   useEffect(() => {
     fetch('/api/admin/config')
@@ -88,10 +125,11 @@ export default function AdminPage() {
   const loadAll = async () => {
     setStatusLoading(true);
     try {
-      const [configRes, statusRes, linksRes] = await Promise.all([
+      const [configRes, statusRes, linksRes, brandingRes] = await Promise.all([
         fetch('/api/admin/config').then((r) => r.json()),
         fetch('/api/admin/status').then((r) => r.json()),
         fetch('/api/admin/template-links').then((r) => r.json()),
+        fetch('/api/site-settings').then((r) => r.json()),
       ]);
       if (configRes.success) {
         setConfig(configRes.data);
@@ -101,6 +139,23 @@ export default function AdminPage() {
       }
       if (statusRes.success) setStatus(statusRes.data);
       if (linksRes.success) setTemplateLinks(linksRes.data ?? []);
+      if (brandingRes.success) {
+        const d = brandingRes.data;
+        setBranding({
+          siteTitle: d.siteTitle,
+          pwaName: d.pwaName,
+          pwaShortName: d.pwaShortName,
+          primaryColor: d.primaryColor,
+          accentColor: d.accentColor,
+        });
+        setBrandingUrls({
+          logoUrl: d.logoUrl,
+          faviconUrl: d.faviconUrl,
+          pwaIcon192Url: d.pwaIcon192Url,
+          pwaIcon512Url: d.pwaIcon512Url,
+          appleTouchIconUrl: d.appleTouchIconUrl,
+        });
+      }
     } catch (err) {
       console.error('Admin load failed:', err);
     } finally {
@@ -236,6 +291,57 @@ export default function AdminPage() {
       setImporting(false);
       if (importInputRef.current) importInputRef.current.value = '';
       setTimeout(() => setLinkMsg(''), 4000);
+    }
+  };
+
+  // ── Branding helpers ───────────────────────────────────────────────────────
+
+  const handleBrandingSave = async () => {
+    setBrandingSaving(true);
+    setBrandingMsg('');
+    try {
+      const res = await fetch('/api/admin/site-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(branding),
+      });
+      const json = await res.json();
+      if (json.success) setBrandingMsg('Saved');
+      else setBrandingMsg('Error: ' + (json.error ?? 'unknown'));
+    } finally {
+      setBrandingSaving(false);
+      setTimeout(() => setBrandingMsg(''), 3000);
+    }
+  };
+
+  const handleBrandingUpload = async (file: File, name: string) => {
+    setBrandingUploading(name);
+    setBrandingMsg('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('name', name);
+      const res = await fetch('/api/admin/site-settings/upload', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (json.success) {
+        setBrandingMsg(`${name} uploaded`);
+        // Reload to get updated cache-buster URLs
+        const br = await fetch('/api/site-settings').then((r) => r.json());
+        if (br.success) {
+          setBrandingUrls({
+            logoUrl: br.data.logoUrl,
+            faviconUrl: br.data.faviconUrl,
+            pwaIcon192Url: br.data.pwaIcon192Url,
+            pwaIcon512Url: br.data.pwaIcon512Url,
+            appleTouchIconUrl: br.data.appleTouchIconUrl,
+          });
+        }
+      } else {
+        setBrandingMsg('Upload error: ' + (json.error ?? 'unknown'));
+      }
+    } finally {
+      setBrandingUploading(null);
+      setTimeout(() => setBrandingMsg(''), 4000);
     }
   };
 
@@ -603,6 +709,145 @@ export default function AdminPage() {
         </div>
       </section>
 
+      {/* ── Branding ────────────────────────────────────────────────────────── */}
+      <section className="flex flex-col gap-4">
+        <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+          <Palette className="w-5 h-5 text-amber-500" />
+          <h2 className="text-lg font-semibold text-white">Branding</h2>
+        </div>
+
+        {/* Text + color settings */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm text-zinc-400">Site Title</label>
+            <Input
+              value={branding.siteTitle}
+              onChange={(e) => setBranding((b) => ({ ...b, siteTitle: e.target.value }))}
+              placeholder="WAX Wallet Viewer"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm text-zinc-400">PWA App Name</label>
+            <Input
+              value={branding.pwaName}
+              onChange={(e) => setBranding((b) => ({ ...b, pwaName: e.target.value }))}
+              placeholder="WAX Wallet Viewer"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm text-zinc-400">PWA Short Name</label>
+            <Input
+              value={branding.pwaShortName}
+              onChange={(e) => setBranding((b) => ({ ...b, pwaShortName: e.target.value }))}
+              placeholder="WAX Wallet"
+            />
+          </div>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm text-zinc-400">Primary Color</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={branding.primaryColor}
+                  onChange={(e) => setBranding((b) => ({ ...b, primaryColor: e.target.value }))}
+                  className="w-9 h-9 rounded cursor-pointer border border-zinc-700 bg-transparent p-0.5"
+                />
+                <Input
+                  value={branding.primaryColor}
+                  onChange={(e) => setBranding((b) => ({ ...b, primaryColor: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm text-zinc-400">Accent Color</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={branding.accentColor}
+                  onChange={(e) => setBranding((b) => ({ ...b, accentColor: e.target.value }))}
+                  className="w-9 h-9 rounded cursor-pointer border border-zinc-700 bg-transparent p-0.5"
+                />
+                <Input
+                  value={branding.accentColor}
+                  onChange={(e) => setBranding((b) => ({ ...b, accentColor: e.target.value }))}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button onClick={handleBrandingSave} loading={brandingSaving}>
+            <Save className="w-4 h-4" />
+            Save Branding
+          </Button>
+          {brandingMsg && (
+            <span className={`text-sm ${brandingMsg.startsWith('Error') || brandingMsg.startsWith('Upload error') ? 'text-red-400' : 'text-green-400'}`}>
+              {brandingMsg}
+            </span>
+          )}
+        </div>
+
+        {/* Image slots */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {BRANDING_IMAGES.map(({ name, label, urlKey, hint }) => {
+            const url = brandingUrls[urlKey];
+            const uploading = brandingUploading === name;
+            return (
+              <div key={name} className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-zinc-300">{label}</span>
+                  {url && <Badge variant="green">Uploaded</Badge>}
+                </div>
+                {url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={url} alt={label} className="w-16 h-16 object-contain rounded-lg bg-zinc-800 p-1" />
+                ) : (
+                  <div className="w-16 h-16 rounded-lg bg-zinc-800 flex items-center justify-center">
+                    <Palette className="w-6 h-6 text-zinc-600" />
+                  </div>
+                )}
+                <p className="text-xs text-zinc-500">{hint}</p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={uploading}
+                  disabled={brandingUploading !== null}
+                  onClick={() => {
+                    brandingTargetRef.current = name;
+                    brandingFileInputRef.current?.click();
+                  }}
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {url ? 'Replace' : 'Upload'}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Hidden file input shared across all image slots */}
+        <input
+          ref={brandingFileInputRef}
+          type="file"
+          accept="image/png,image/svg+xml,image/x-icon"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleBrandingUpload(f, brandingTargetRef.current);
+            e.target.value = '';
+          }}
+        />
+
+        <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-xs text-zinc-500">
+          <strong className="text-zinc-400">Persistence:</strong> Images and settings are stored at{' '}
+          <code className="text-amber-400">DATA_DIR/branding/</code>. Mount a Railway Volume at{' '}
+          <code className="text-amber-400">/data</code> and set{' '}
+          <code className="text-amber-400">DATA_DIR=/data</code> for changes to survive deploys.
+          Without DATA_DIR, uploads are rejected and settings reset on restart.
+        </div>
+      </section>
+
       {/* Diagnostics */}
       <section className="flex flex-col gap-4">
         <h2 className="text-lg font-semibold text-white border-b border-zinc-800 pb-2">Diagnostics</h2>
@@ -617,6 +862,14 @@ export default function AdminPage() {
           <span className="text-zinc-600">·</span>
           <a href="/api/template-links" target="_blank" rel="noopener noreferrer" className="text-sm text-amber-400 hover:underline">
             Template links (public)
+          </a>
+          <span className="text-zinc-600">·</span>
+          <a href="/api/site-settings" target="_blank" rel="noopener noreferrer" className="text-sm text-amber-400 hover:underline">
+            Site settings (public)
+          </a>
+          <span className="text-zinc-600">·</span>
+          <a href="/manifest.webmanifest" target="_blank" rel="noopener noreferrer" className="text-sm text-amber-400 hover:underline">
+            PWA manifest
           </a>
         </div>
       </section>
