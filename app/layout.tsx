@@ -37,12 +37,13 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const { siteTitle } = getSettings();
   return (
     <html lang="en">
       <body className="bg-zinc-950 text-white min-h-screen antialiased">
         <Providers>
-          <Navbar />
+          <Navbar siteTitle={siteTitle} />
           <main className="max-w-screen-2xl mx-auto px-4 py-6">{children}</main>
         </Providers>
         <SwRegister />

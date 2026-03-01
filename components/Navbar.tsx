@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { Wallet, Shield, Home, Search } from 'lucide-react';
 import { WalletConnectButton } from './WalletConnectButton';
 
-export function Navbar() {
+export function Navbar({ siteTitle = 'WAX Wallet' }: { siteTitle?: string }) {
   const pathname = usePathname();
 
   return (
@@ -16,7 +16,7 @@ export function Navbar() {
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center">
             <span className="text-black font-bold text-xs">W</span>
           </div>
-          <span className="font-bold text-white hidden sm:block">WAX Wallet</span>
+          <span className="font-bold text-white hidden sm:block">{siteTitle}</span>
         </Link>
 
         {/* Nav links */}
