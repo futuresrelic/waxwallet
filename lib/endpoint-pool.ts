@@ -3,19 +3,30 @@
 // and falls back automatically when an endpoint fails.
 
 import type { EndpointHealth } from './types';
+import { getStoredConfig } from './config-store';
 
-const DEFAULT_ENDPOINTS = (process.env.ATOMICASSETS_ENDPOINTS ?? '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
+// Fallback list (used when no endpoints are stored and ATOMICASSETS_ENDPOINTS env is unset).
+// Ordered by typical reliability/latency — Sw/eden first per operator preference.
+const BUILTIN_DEFAULT_ENDPOINTS = [
+  'https://api.waxsweden.org',
+  'https://wax.api.atomicassets.io',
+  'https://aa.wax.blacklusion.io',
+  'https://wax-aa.eu.eosamsterdam.net',
+  'https://atomic.wax.eosrio.io',
+];
 
-if (DEFAULT_ENDPOINTS.length === 0) {
-  DEFAULT_ENDPOINTS.push(
-    'https://wax.api.atomicassets.io',
-    'https://aa.wax.blacklusion.io',
-    'https://wax-aa.eu.eosamsterdam.net',
-    'https://atomic.wax.eosrio.io',
-  );
+function getInitialEndpoints(): string[] {
+  // 1. Persisted config (saved via admin panel)
+  const stored = getStoredConfig().endpoints;
+  if (stored && stored.length > 0) return stored;
+  // 2. Environment variable
+  const fromEnv = (process.env.ATOMICASSETS_ENDPOINTS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (fromEnv.length > 0) return fromEnv;
+  // 3. Built-in defaults
+  return BUILTIN_DEFAULT_ENDPOINTS;
 }
 
 interface PoolEntry {
@@ -39,9 +50,8 @@ export const stats = {
 };
 
 function getPool(): PoolEntry[] {
-  // Lazily initialise from env or defaults
   if (pool.size === 0) {
-    for (const url of DEFAULT_ENDPOINTS) {
+    for (const url of getInitialEndpoints()) {
       pool.set(url, { url, failCount: 0, lastFailTime: 0, lastSuccessTime: 0, latencyMs: 0 });
     }
   }

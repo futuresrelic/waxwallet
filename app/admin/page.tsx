@@ -44,6 +44,17 @@ interface BrandingData {
   accentColor: string;
 }
 
+const THEME_PRESETS = [
+  { name: 'WAX Gold',   primary: '#f59e0b', accent: '#92400e', gradient: 'from-amber-400 to-orange-600' },
+  { name: 'Violet',     primary: '#8b5cf6', accent: '#4c1d95', gradient: 'from-violet-500 to-purple-700' },
+  { name: 'Ocean',      primary: '#06b6d4', accent: '#164e63', gradient: 'from-cyan-400 to-blue-600' },
+  { name: 'Forest',     primary: '#10b981', accent: '#064e3b', gradient: 'from-emerald-400 to-green-700' },
+  { name: 'Rose',       primary: '#f43f5e', accent: '#881337', gradient: 'from-rose-400 to-red-700' },
+  { name: 'Slate',      primary: '#94a3b8', accent: '#334155', gradient: 'from-slate-400 to-slate-600' },
+  { name: 'Gold/Black', primary: '#eab308', accent: '#18181b', gradient: 'from-yellow-400 to-zinc-900' },
+  { name: 'Cyber',      primary: '#a3e635', accent: '#1a2e05', gradient: 'from-lime-400 to-green-900' },
+] as const;
+
 const BRANDING_IMAGES = [
   { name: 'logo.png', label: 'Logo', urlKey: 'logoUrl', hint: 'Square PNG shown in app header' },
   { name: 'favicon.png', label: 'Favicon', urlKey: 'faviconUrl', hint: '32×32 or 64×64 PNG' },
@@ -103,6 +114,7 @@ export default function AdminPage() {
   const [brandingSaving, setBrandingSaving] = useState(false);
   const [brandingMsg, setBrandingMsg] = useState('');
   const [brandingUploading, setBrandingUploading] = useState<string | null>(null);
+  const [showThemeModal, setShowThemeModal] = useState(false);
   const brandingFileInputRef = useRef<HTMLInputElement>(null);
   const brandingTargetRef = useRef<string>('');
 
@@ -776,10 +788,14 @@ export default function AdminPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <Button onClick={handleBrandingSave} loading={brandingSaving}>
             <Save className="w-4 h-4" />
             Save Branding
+          </Button>
+          <Button variant="secondary" onClick={() => setShowThemeModal(true)}>
+            <Palette className="w-4 h-4" />
+            Theme Presets
           </Button>
           {brandingMsg && (
             <span className={`text-sm ${brandingMsg.startsWith('Error') || brandingMsg.startsWith('Upload error') ? 'text-red-400' : 'text-green-400'}`}>
@@ -825,6 +841,43 @@ export default function AdminPage() {
             );
           })}
         </div>
+
+        {/* Theme Presets Modal */}
+        {showThemeModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            onClick={() => setShowThemeModal(false)}
+          >
+            <div
+              className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-md mx-4 flex flex-col gap-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-semibold text-white">Choose a Theme</h3>
+                <button onClick={() => setShowThemeModal(false)} className="text-zinc-500 hover:text-white text-xl leading-none">&times;</button>
+              </div>
+              <p className="text-xs text-zinc-500">Clicking a preset fills in the color fields. Hit <strong className="text-zinc-300">Save Branding</strong> to apply.</p>
+              <div className="grid grid-cols-2 gap-3">
+                {THEME_PRESETS.map((t) => (
+                  <button
+                    key={t.name}
+                    onClick={() => {
+                      setBranding((b) => ({ ...b, primaryColor: t.primary, accentColor: t.accent }));
+                      setShowThemeModal(false);
+                    }}
+                    className="flex items-center gap-3 p-3 rounded-xl border border-zinc-700 hover:border-zinc-500 bg-zinc-800/60 hover:bg-zinc-800 transition-colors text-left"
+                  >
+                    <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${t.gradient} shrink-0`} />
+                    <div>
+                      <p className="text-sm font-medium text-white">{t.name}</p>
+                      <p className="text-xs text-zinc-500 font-mono">{t.primary}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Hidden file input shared across all image slots */}
         <input

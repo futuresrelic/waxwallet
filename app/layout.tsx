@@ -1,5 +1,9 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+
+// Branding values come from the runtime data store, so this layout
+// must be server-rendered on every request (not statically cached).
+export const dynamic = 'force-dynamic';
 import { Navbar } from '@/components/Navbar';
 import { Providers } from '@/components/Providers';
 import { SwRegister } from '@/components/SwRegister';
