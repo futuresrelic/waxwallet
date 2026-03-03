@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { WalletConnectButton } from './WalletConnectButton';
 
-const POPULAR_ACCOUNTS = ['futuresrelic', 'waxarena.gm', 'aliens.world'];
+const DEFAULT_QUICK_WALLETS = ['futuresrelic'];
 
-export function HomeSearch() {
+export function HomeSearch({ quickWallets }: { quickWallets?: string[] }) {
+  const accounts = quickWallets && quickWallets.length > 0 ? quickWallets : DEFAULT_QUICK_WALLETS;
   const router = useRouter();
   const [account, setAccount] = useState('');
   const [error, setError] = useState('');
@@ -45,7 +46,7 @@ export function HomeSearch() {
       {/* Popular accounts */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-zinc-600">Quick:</span>
-        {POPULAR_ACCOUNTS.map((acc) => (
+        {accounts.map((acc) => (
           <button
             key={acc}
             onClick={() => router.push(`/wallet/${acc}`)}

@@ -11,6 +11,7 @@ export interface StoredConfig {
   endpoints?: string[];
   featuredCollections?: string[];
   blockedCollections?: string[];
+  quickWallets?: string[];
 }
 
 function getFilePath(): string | null {

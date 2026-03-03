@@ -1,6 +1,7 @@
 import { Layers, Search, Zap, Shield } from 'lucide-react';
 import { HomeSearch } from '@/components/HomeSearch';
 import { getSettings } from '@/lib/branding-store';
+import { getStoredConfig } from '@/lib/config-store';
 
 const FEATURES = [
   {
@@ -27,6 +28,7 @@ const FEATURES = [
 
 export default function HomePage() {
   const { siteTitle } = getSettings();
+  const { quickWallets } = getStoredConfig();
 
   return (
     <div className="flex flex-col items-center gap-16 py-16">
@@ -45,7 +47,7 @@ export default function HomePage() {
       </div>
 
       {/* Interactive search form (client component) */}
-      <HomeSearch />
+      <HomeSearch quickWallets={quickWallets} />
 
       {/* Features */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full max-w-4xl">

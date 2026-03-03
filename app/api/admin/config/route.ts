@@ -16,6 +16,7 @@ function makeAdminConfig() {
       stored.blockedCollections ??
       (process.env.BLOCKED_COLLECTIONS ?? '').split(',').filter(Boolean),
     blockedTemplates: [] as string[],
+    quickWallets: stored.quickWallets ?? ['futuresrelic'],
   };
 }
 
@@ -70,6 +71,11 @@ export async function POST(req: NextRequest) {
 
     if (body.blockedTemplates && Array.isArray(body.blockedTemplates)) {
       adminConfig.blockedTemplates = body.blockedTemplates;
+    }
+
+    if (Array.isArray(body.quickWallets)) {
+      adminConfig.quickWallets = body.quickWallets;
+      configPatch.quickWallets = body.quickWallets;
     }
 
     // Persist everything that changed to DATA_DIR/config.json

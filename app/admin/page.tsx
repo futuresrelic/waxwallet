@@ -34,6 +34,7 @@ interface Config {
   featuredCollections: string[];
   blockedCollections: string[];
   blockedTemplates: string[];
+  quickWallets: string[];
 }
 
 interface BrandingData {
@@ -86,6 +87,8 @@ export default function AdminPage() {
   const [newEndpoint, setNewEndpoint] = useState('');
   const [featuredStr, setFeaturedStr] = useState('');
   const [blockedStr, setBlockedStr] = useState('');
+  const [quickWallets, setQuickWallets] = useState<string[]>([]);
+  const [newQuickWallet, setNewQuickWallet] = useState('');
 
   // Template links
   const [templateLinks, setTemplateLinks] = useState<TemplateLink[]>([]);
@@ -148,6 +151,7 @@ export default function AdminPage() {
         setEndpoints(configRes.data.endpoints ?? []);
         setFeaturedStr((configRes.data.featuredCollections ?? []).join('\n'));
         setBlockedStr((configRes.data.blockedCollections ?? []).join('\n'));
+        setQuickWallets(configRes.data.quickWallets ?? []);
       }
       if (statusRes.success) setStatus(statusRes.data);
       if (linksRes.success) setTemplateLinks(linksRes.data ?? []);
@@ -211,6 +215,7 @@ export default function AdminPage() {
           endpoints,
           featuredCollections: featuredStr.split('\n').map((s) => s.trim()).filter(Boolean),
           blockedCollections: blockedStr.split('\n').map((s) => s.trim()).filter(Boolean),
+          quickWallets,
         }),
       });
       const json = await res.json();
@@ -547,6 +552,60 @@ export default function AdminPage() {
             placeholder="e.g. spamcollect1"
             className="w-full rounded-lg bg-zinc-800/80 border border-zinc-700 text-white placeholder:text-zinc-500 text-sm px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500/50 font-mono resize-none"
           />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="text-sm text-zinc-400">
+            Quick Wallets{' '}
+            <span className="text-zinc-600 font-normal">(shown as shortcuts on the home page)</span>
+          </label>
+          {quickWallets.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {quickWallets.map((w) => (
+                <div key={w} className="flex items-center gap-1.5 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5">
+                  <span className="font-mono text-sm text-zinc-300">{w}</span>
+                  <button
+                    onClick={() => setQuickWallets(quickWallets.filter((x) => x !== w))}
+                    className="text-zinc-500 hover:text-red-400 transition-colors"
+                    title="Remove"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="e.g. futuresrelic"
+              value={newQuickWallet}
+              onChange={(e) => setNewQuickWallet(e.target.value.toLowerCase().trim())}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const w = newQuickWallet.trim();
+                  if (w && /^[a-z1-5.]{1,13}$/.test(w) && !quickWallets.includes(w)) {
+                    setQuickWallets([...quickWallets, w]);
+                    setNewQuickWallet('');
+                  }
+                }
+              }}
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const w = newQuickWallet.trim();
+                if (w && /^[a-z1-5.]{1,13}$/.test(w) && !quickWallets.includes(w)) {
+                  setQuickWallets([...quickWallets, w]);
+                  setNewQuickWallet('');
+                }
+              }}
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+          </div>
+          <p className="text-xs text-zinc-600">Only valid WAX account names (a–z, 1–5, dots, max 13 chars). Press Enter or + to add.</p>
         </div>
 
         <div className="flex items-center gap-3">
