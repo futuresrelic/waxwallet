@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Wallet, Shield, Home, Search } from 'lucide-react';
+import { Wallet, Shield, Home, Search, Trophy } from 'lucide-react';
 import { WalletConnectButton } from './WalletConnectButton';
 import { EndpointPicker } from './EndpointPicker';
 
@@ -33,6 +33,18 @@ export function Navbar({ siteTitle = 'WAX Wallet' }: { siteTitle?: string }) {
           >
             <Home className="w-4 h-4" />
             <span className="hidden sm:block">Home</span>
+          </Link>
+          <Link
+            href="/leaderboard"
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
+              pathname === '/leaderboard'
+                ? 'text-white bg-zinc-800'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50',
+            )}
+          >
+            <Trophy className="w-4 h-4" />
+            <span className="hidden sm:block">Leaderboard</span>
           </Link>
         </nav>
 
