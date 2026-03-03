@@ -1,8 +1,9 @@
 // ─── GET /api/leaderboard ──────────────────────────────────────────────────────
-// Returns the top WAX NFT holders from AtomicAssets.
+// Returns the top WAX NFT holders for a specific collection from AtomicAssets.
+// collection_name is REQUIRED — the global all-accounts endpoint is too expensive.
 //
 // Query params:
-//   collection_name  optional  filter to a specific collection
+//   collection_name  required  WAX collection name
 //   limit            optional  10–100, default 50
 //   userEndpoint     optional  user-selected AtomicAssets endpoint URL
 //   refresh          optional  bypass cache
@@ -25,6 +26,13 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
 
   const collectionName = searchParams.get('collection_name')?.trim() || undefined;
+  if (!collectionName) {
+    return NextResponse.json(
+      { success: false, error: 'collection_name is required' },
+      { status: 400 },
+    );
+  }
+
   const limit = Math.min(100, Math.max(10, Number(searchParams.get('limit') ?? 50)));
   const refresh = searchParams.get('refresh') === 'true';
   const userEndpoint = resolveUserEndpoint(searchParams.get('userEndpoint'));
@@ -47,11 +55,11 @@ export async function GET(req: NextRequest) {
 
   const base = userEndpoint ?? pickEndpoint();
   const params = new URLSearchParams({
+    collection_name: collectionName,
     order: 'desc',
     sort: 'assets',
     limit: String(limit),
   });
-  if (collectionName) params.set('collection_name', collectionName);
 
   try {
     const res = await fetch(`${base}/atomicassets/v1/accounts?${params}`, {

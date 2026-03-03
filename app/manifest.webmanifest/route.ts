@@ -20,6 +20,10 @@ export async function GET() {
       purpose: 'any maskable',
     });
   }
+  // Bundled SVG fallback — always present so the manifest is valid even before
+  // custom icons are uploaded. Browsers that support SVG (Firefox, Safari, Chrome 96+)
+  // will use it for install prompts when no PNG is available.
+  icons.push({ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' });
 
   const manifest = {
     name: s.pwaName,
