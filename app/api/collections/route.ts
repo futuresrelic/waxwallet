@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAccountSummary } from '@/lib/api/atomicassets';
 import { buildCacheKey, cacheGet, cacheSet } from '@/lib/cache';
-import { pickEndpoint } from '@/lib/endpoint-pool';
+import { pickEndpoint, resolveUserEndpoint } from '@/lib/endpoint-pool';
 
 export const runtime = 'nodejs';
 
@@ -17,8 +17,9 @@ export async function GET(req: NextRequest) {
   }
 
   const refresh = searchParams.get('refresh') === 'true';
-  const cacheKey = buildCacheKey('collections', { owner });
-  const endpoint = pickEndpoint();
+  const userEndpoint = resolveUserEndpoint(searchParams.get('userEndpoint'));
+  const cacheKey = buildCacheKey('collections', { owner, ...(userEndpoint ? { _ep: userEndpoint } : {}) });
+  const endpoint = userEndpoint ?? pickEndpoint();
 
   if (!refresh) {
     const cached = await cacheGet<unknown>(cacheKey);
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const summary = await getAccountSummary(owner);
+    const summary = await getAccountSummary(owner, userEndpoint);
     await cacheSet(cacheKey, summary, COLLECTIONS_TTL);
     return NextResponse.json(
       { success: true, data: summary },

@@ -30,6 +30,13 @@ interface WalletPageProps {
 
 // ─── Fetchers ─────────────────────────────────────────────────────────────────
 
+const LS_ENDPOINT_KEY = 'wax_preferred_endpoint';
+
+function getUserEndpoint(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return localStorage.getItem(LS_ENDPOINT_KEY) ?? undefined;
+}
+
 async function fetchAssetsPage(account: string, filters: AssetFilters, page: number, refresh = false): Promise<AssetData[]> {
   // Build attribute params as a.{key}=value entries
   const attrParams = Object.fromEntries(
@@ -46,6 +53,7 @@ async function fetchAssetsPage(account: string, filters: AssetFilters, page: num
     limit: filters.limit,
     burned: filters.showBurned ? 'true' : undefined,
     refresh: refresh ? 'true' : undefined,
+    userEndpoint: getUserEndpoint(),
     ...attrParams,
   });
   const res = await fetch(`/api/assets?${qs}`);
@@ -72,6 +80,7 @@ async function fetchFacets(
     collection_name: collections.join(',') || undefined,
     schema_name: schemas.join(',') || undefined,
     refresh: refresh ? 'true' : undefined,
+    userEndpoint: getUserEndpoint(),
   });
   const res = await fetch(`/api/facets?${qs}`);
   const json = await res.json();
@@ -117,6 +126,7 @@ async function fetchStack(
     limit: 20,
     scan_pages: scanAll ? 10 : 3,
     refresh: refresh ? 'true' : undefined,
+    userEndpoint: getUserEndpoint(),
     ...attrParams,
   });
   const res = await fetch(`/api/stack?${qs}`);
@@ -130,7 +140,11 @@ async function fetchStack(
 }
 
 async function fetchCollections(account: string, refresh = false) {
-  const qs = refresh ? `owner=${account}&refresh=true` : `owner=${account}`;
+  const qs = buildQueryString({
+    owner: account,
+    refresh: refresh ? 'true' : undefined,
+    userEndpoint: getUserEndpoint(),
+  });
   const res = await fetch(`/api/collections?${qs}`);
   const json = await res.json();
   // Server returns { success, data: { collections: [...] } } after the fix in getAccountSummary.

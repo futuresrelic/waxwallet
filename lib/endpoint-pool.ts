@@ -120,6 +120,23 @@ export function markFailure(url: string, message: string): void {
   stats.errorCountLastHour = stats.errors.filter((e) => e.time > hourAgo).length;
 }
 
+/**
+ * Validates a user-supplied endpoint override from a query parameter.
+ * Returns the URL string if it's a valid https:// URL, otherwise undefined.
+ * Keeps route handlers safe from open-redirect / SSRF on non-https schemes.
+ */
+export function resolveUserEndpoint(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'https:') return undefined;
+    // Remove trailing slash so it appends cleanly to /atomicassets/v1/...
+    return u.origin;
+  } catch {
+    return undefined;
+  }
+}
+
 export function getHealthStatus(): EndpointHealth[] {
   return getPool().map((e) => ({
     url: e.url,

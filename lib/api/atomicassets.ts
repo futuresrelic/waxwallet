@@ -45,13 +45,15 @@ function releaseSlot(): void {
 
 // ─── Internal fetch with retries (no dedup/semaphore) ─────────────────────────
 
-async function performFetch<T>(path: string, retries: number): Promise<T> {
+async function performFetch<T>(path: string, retries: number, endpointOverride?: string): Promise<T> {
   await acquireSlot();
   let lastError: Error | null = null;
 
   try {
     for (let attempt = 0; attempt <= retries; attempt++) {
-      const base = pickEndpoint();
+      // When the user has pinned an endpoint use it on every attempt;
+      // otherwise let the pool pick the healthiest one each retry.
+      const base = endpointOverride ?? pickEndpoint();
       const url = `${base}/atomicassets/v1${path}`;
       const start = Date.now();
 
@@ -99,15 +101,16 @@ async function performFetch<T>(path: string, retries: number): Promise<T> {
 
 // ─── Public fetch: deduplication + semaphore ──────────────────────────────────
 
-async function apiFetch<T>(path: string, retries = 2): Promise<T> {
-  // Deduplication: if an identical request is already in-flight, share it
-  const existing = inflight.get(path);
+async function apiFetch<T>(path: string, retries = 2, endpointOverride?: string): Promise<T> {
+  // Include the override in the dedup key so a pinned request never
+  // shares an in-flight entry with an auto-selected one for the same path.
+  const dedupKey = endpointOverride ? `${endpointOverride}|${path}` : path;
+  const existing = inflight.get(dedupKey);
   if (existing) return existing as Promise<T>;
 
-  const promise = performFetch<T>(path, retries);
-  inflight.set(path, promise as Promise<unknown>);
-  // Remove from map when done regardless of outcome
-  void promise.finally(() => inflight.delete(path));
+  const promise = performFetch<T>(path, retries, endpointOverride);
+  inflight.set(dedupKey, promise as Promise<unknown>);
+  void promise.finally(() => inflight.delete(dedupKey));
   return promise;
 }
 
@@ -132,7 +135,7 @@ export interface AssetsQuery {
   _uncapped?: boolean;
 }
 
-export async function getAssets(query: AssetsQuery): Promise<AssetData[]> {
+export async function getAssets(query: AssetsQuery, endpointOverride?: string): Promise<AssetData[]> {
   const params = new URLSearchParams();
   params.set('owner', query.owner);
 
@@ -174,7 +177,7 @@ export async function getAssets(query: AssetsQuery): Promise<AssetData[]> {
     }
   }
 
-  return apiFetch<AssetData[]>(`/assets?${params.toString()}`);
+  return apiFetch<AssetData[]>(`/assets?${params.toString()}`, 2, endpointOverride);
 }
 
 export async function getAsset(assetId: string): Promise<AssetData> {
@@ -209,7 +212,7 @@ export interface AccountSummary {
   collections: Array<{ collection: CollectionData; assets: number }>;
 }
 
-export async function getAccountSummary(owner: string): Promise<AccountSummary> {
+export async function getAccountSummary(owner: string, endpointOverride?: string): Promise<AccountSummary> {
   // AtomicAssets /accounts/{owner} returns an object:
   //   { collections: [...], templates: [...], schemas: [...] }
   // apiFetch() unwraps json.data, so `raw` is that object — NOT the collections array.
@@ -217,7 +220,7 @@ export async function getAccountSummary(owner: string): Promise<AccountSummary> 
   //   { collections: { collections: [...] } }  ← WRONG
   // Fix: extract raw.collections (the actual array) and fall back gracefully.
   type RawAccount = { collections: AccountSummary['collections'] } & Record<string, unknown>;
-  const raw = await apiFetch<RawAccount | AccountSummary['collections']>(`/accounts/${owner}`);
+  const raw = await apiFetch<RawAccount | AccountSummary['collections']>(`/accounts/${owner}`, 2, endpointOverride);
   const cols: AccountSummary['collections'] = Array.isArray(raw)
     ? (raw as AccountSummary['collections'])
     : Array.isArray((raw as RawAccount).collections)

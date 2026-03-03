@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssets } from '@/lib/api/atomicassets';
 import { buildCacheKey, cacheGet, cacheSet } from '@/lib/cache';
-import { pickEndpoint } from '@/lib/endpoint-pool';
+import { pickEndpoint, resolveUserEndpoint } from '@/lib/endpoint-pool';
 
 export const runtime = 'nodejs';
 
@@ -48,10 +48,11 @@ export async function GET(req: NextRequest) {
   const collection_name = searchParams.get('collection_name') ?? undefined;
   const schema_name = searchParams.get('schema_name') ?? undefined;
   const refresh = searchParams.get('refresh') === 'true';
+  const userEndpoint = resolveUserEndpoint(searchParams.get('userEndpoint'));
 
-  const cacheKey = buildCacheKey('facets', { owner, collection_name, schema_name });
+  const cacheKey = buildCacheKey('facets', { owner, collection_name, schema_name, ...(userEndpoint ? { _ep: userEndpoint } : {}) });
 
-  const endpoint = pickEndpoint();
+  const endpoint = userEndpoint ?? pickEndpoint();
 
   if (!refresh) {
     const cached = await cacheGet<unknown>(cacheKey);
@@ -80,8 +81,8 @@ export async function GET(req: NextRequest) {
 
     // Fetch up to 2 batches in parallel (covers first 2000 assets)
     const [batch1, batch2] = await Promise.all([
-      getAssets({ ...baseQuery, page: 1 }),
-      getAssets({ ...baseQuery, page: 2 }),
+      getAssets({ ...baseQuery, page: 1 }, userEndpoint),
+      getAssets({ ...baseQuery, page: 2 }, userEndpoint),
     ]);
 
     const all = [...batch1, ...batch2];

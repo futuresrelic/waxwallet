@@ -23,7 +23,7 @@ import { getAssets } from '@/lib/api/atomicassets';
 import { getAssetMedia, getAssetName, type AssetData, type TemplateStack, type StackMeta } from '@/lib/types';
 import { buildCacheKey, cacheGet, cacheSet, CACHE_TTL } from '@/lib/cache';
 import { isIndexing, startIndexJob } from '@/lib/index-jobs';
-import { pickEndpoint } from '@/lib/endpoint-pool';
+import { pickEndpoint, resolveUserEndpoint } from '@/lib/endpoint-pool';
 
 export const runtime = 'nodejs';
 
@@ -43,6 +43,7 @@ async function collectAssets(params: {
   collection_name?: string;
   schema_name?: string;
   maxAssets: number;
+  endpointOverride?: string;
 }): Promise<{ assets: AssetData[]; capped: boolean; scanComplete: boolean }> {
   const all: AssetData[] = [];
   let page = 1;
@@ -63,7 +64,7 @@ async function collectAssets(params: {
           page: page + i,
           limit: BATCH_SIZE,
           _uncapped: true,
-        }),
+        }, params.endpointOverride),
       ),
     );
 
@@ -110,12 +111,14 @@ async function buildAggregation(
   schemaName: string | undefined,
   sortKey: string,
   maxAssets: number,
+  endpointOverride?: string,
 ): Promise<AggResult> {
   const { assets, capped, scanComplete } = await collectAssets({
     owner,
     collection_name: collectionName,
     schema_name: schemaName,
     maxAssets,
+    endpointOverride,
   });
 
   const templateMap = new Map<string, TemplateStack>();
@@ -228,6 +231,7 @@ export async function GET(req: NextRequest) {
   const page = Math.max(1, Number(searchParams.get('page') ?? 1));
   const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') ?? 20)));
   const refresh = searchParams.get('refresh') === 'true';
+  const userEndpoint = resolveUserEndpoint(searchParams.get('userEndpoint'));
 
   // Attribute filters: a.{key}=value params (AND semantics, applied post-cache)
   const attrFilters: Record<string, string> = {};
@@ -249,6 +253,7 @@ export async function GET(req: NextRequest) {
     schema_name: schemaName,
     sort,
     scan_pages: scanPages,
+    ...(userEndpoint ? { _ep: userEndpoint } : {}),
   });
 
   // Fast-scan cache key (always available as partial data fallback)
@@ -258,6 +263,7 @@ export async function GET(req: NextRequest) {
     schema_name: schemaName,
     sort,
     scan_pages: FAST_SCAN_PAGES,
+    ...(userEndpoint ? { _ep: userEndpoint } : {}),
   });
 
   try {
@@ -277,7 +283,7 @@ export async function GET(req: NextRequest) {
         // This prevents the client from blocking for 10+ seconds on large wallets.
         if (!isIndexing(aggCacheKey)) {
           startIndexJob(aggCacheKey, async () => {
-            const result = await buildAggregation(owner, collectionName, schemaName, sort, maxAssets);
+            const result = await buildAggregation(owner, collectionName, schemaName, sort, maxAssets, userEndpoint);
             await cacheSet(aggCacheKey, result, STACK_AGG_TTL);
           });
         }
@@ -287,7 +293,7 @@ export async function GET(req: NextRequest) {
         let partial = await cacheGet<AggResult>(fastCacheKey);
         if (!partial) {
           partial = await buildAggregation(
-            owner, collectionName, schemaName, sort, FAST_SCAN_PAGES * BATCH_SIZE,
+            owner, collectionName, schemaName, sort, FAST_SCAN_PAGES * BATCH_SIZE, userEndpoint,
           );
           await cacheSet(fastCacheKey, partial, CACHE_TTL);
         }
@@ -309,7 +315,7 @@ export async function GET(req: NextRequest) {
           indexing: true, // tells the client to poll
         };
 
-        const endpoint = pickEndpoint();
+        const endpoint = userEndpoint ?? pickEndpoint();
         return NextResponse.json(
           { success: true, data: pageData, meta },
           { headers: {
@@ -322,7 +328,7 @@ export async function GET(req: NextRequest) {
       }
 
       // Normal (fast) blocking scan
-      agg = await buildAggregation(owner, collectionName, schemaName, sort, maxAssets);
+      agg = await buildAggregation(owner, collectionName, schemaName, sort, maxAssets, userEndpoint);
       await cacheSet(aggCacheKey, agg, STACK_AGG_TTL);
     }
 
@@ -348,7 +354,7 @@ export async function GET(req: NextRequest) {
       indexing: stillIndexing || undefined,
     };
 
-    const endpoint = pickEndpoint();
+    const endpoint = userEndpoint ?? pickEndpoint();
     return NextResponse.json(
       { success: true, data: pageData, meta },
       { headers: {
