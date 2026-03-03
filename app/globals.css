@@ -3,7 +3,31 @@
 :root {
   --background: #09090b;
   --foreground: #fafafa;
+
+  /* ── Accent theme color ──────────────────────────────────────────────────── */
+  /* Default amber. Overridden by:                                              */
+  /*   1. Admin branding <style> injected in layout (server-rendered)           */
+  /*   2. User theme data-theme attribute (ThemePicker → localStorage)          */
+  --primary: #f59e0b;
+
+  /* Re-point Tailwind v4 amber/orange tokens to --primary so every            */
+  /* text-amber-*, bg-amber-*, border-amber-*, from-amber-* etc. utility       */
+  /* automatically responds to theme changes — no component edits needed.       */
+  --color-amber-300: color-mix(in srgb, var(--primary) 75%, white);
+  --color-amber-400: var(--primary);
+  --color-amber-500: var(--primary);
+  --color-amber-600: color-mix(in srgb, var(--primary) 80%, black);
+  --color-orange-500: color-mix(in srgb, var(--primary) 90%, #c2410c);
+  --color-orange-600: color-mix(in srgb, var(--primary) 70%, black);
 }
+
+/* ── User-selectable theme presets ──────────────────────────────────────── */
+/* Applied by setting data-theme attribute on <html> via ThemePicker.       */
+[data-theme="amber"]  { --primary: #f59e0b; }
+[data-theme="violet"] { --primary: #8b5cf6; }
+[data-theme="ocean"]  { --primary: #0ea5e9; }
+[data-theme="forest"] { --primary: #22c55e; }
+[data-theme="rose"]   { --primary: #f43f5e; }
 
 body {
   background: var(--background);

@@ -10,7 +10,7 @@ import type {
   TemplateData,
 } from '../types';
 
-const TIMEOUT_MS = 10_000;
+const TIMEOUT_MS = 20_000;
 
 // ─── M14: Request deduplication ───────────────────────────────────────────────
 // If two callers request the same URL simultaneously, only one network request

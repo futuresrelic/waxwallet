@@ -41,10 +41,25 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+// Only allow valid hex colors to prevent CSS injection via the inline style tag.
+function sanitizeColor(color: string): string {
+  return /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : '#f59e0b';
+}
+
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const { siteTitle } = getSettings();
+  const { siteTitle, primaryColor } = getSettings();
+  const safeColor = sanitizeColor(primaryColor);
+
   return (
     <html lang="en">
+      <head>
+        {/* Inject admin branding color as CSS variable. User theme (data-theme)
+            overrides this via higher-specificity selectors in globals.css. */}
+        <style dangerouslySetInnerHTML={{ __html: `:root{--primary:${safeColor};}` }} />
+        {/* Restore user's theme preference synchronously before first paint
+            to avoid a flash of the default amber color. */}
+        <script dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('wax_theme');if(t&&t!=='auto')document.documentElement.setAttribute('data-theme',t);}catch(e){}` }} />
+      </head>
       <body className="bg-zinc-950 text-white min-h-screen antialiased">
         <Providers>
           <Navbar siteTitle={siteTitle} />

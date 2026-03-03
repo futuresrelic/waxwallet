@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { Wallet, Shield, Home, Search, Trophy } from 'lucide-react';
 import { WalletConnectButton } from './WalletConnectButton';
 import { EndpointPicker } from './EndpointPicker';
+import { ThemePicker } from './ThemePicker';
 
 export function Navbar({ siteTitle = 'WAX Wallet' }: { siteTitle?: string }) {
   const pathname = usePathname();
@@ -50,6 +51,7 @@ export function Navbar({ siteTitle = 'WAX Wallet' }: { siteTitle?: string }) {
 
         {/* Right side */}
         <div className="flex items-center gap-2">
+          <ThemePicker />
           <EndpointPicker />
           <WalletConnectButton />
           <Link

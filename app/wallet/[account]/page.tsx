@@ -390,11 +390,16 @@ export default function WalletPage({ params }: WalletPageProps) {
     refetchInterval: (query) => (query.state.data?.meta.indexing ? 3_000 : false),
   });
 
-  // Dynamic attribute facets (server-backed counts)
+  // Dynamic attribute facets — deferred until the primary assets query resolves.
+  // Facets fires 2×1000-asset requests which compete with the initial asset load
+  // on large wallets. Waiting for assetsLoading=false gives page 1 priority.
+  // In stack view assetsLoading is always false (assets query disabled), so
+  // facets fires immediately there — same behaviour as before.
   const { data: facetsData } = useQuery({
     queryKey: ['facets', account, filters.collections, filters.schemas],
     queryFn: () => fetchFacets(account, filters.collections, filters.schemas, forceRefreshRef.current),
     staleTime: 60_000,
+    enabled: !assetsLoading,
   });
 
   // Template links (both views)

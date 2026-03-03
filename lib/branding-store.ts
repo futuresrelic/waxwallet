@@ -61,32 +61,30 @@ export function ensureBrandingDir(): string | null {
   return dir;
 }
 
-// ─── In-memory store ──────────────────────────────────────────────────────────
+// ─── Store helpers ─────────────────────────────────────────────────────────────
 
-let loaded = false;
-let settings: BrandingSettings = { ...DEFAULTS };
+// In-memory fallback when DATA_DIR is not set.
+let memSettings: BrandingSettings = { ...DEFAULTS };
 
-function ensureLoaded(): void {
-  if (loaded) return;
-  loaded = true;
+function readFromDisk(): BrandingSettings | null {
   const path = getSettingsPath();
-  if (!path || !existsSync(path)) return;
+  if (!path || !existsSync(path)) return null;
   try {
     const raw = readFileSync(path, 'utf8');
-    const data = JSON.parse(raw) as Partial<BrandingSettings>;
-    settings = { ...DEFAULTS, ...data };
+    return { ...DEFAULTS, ...JSON.parse(raw) as Partial<BrandingSettings> };
   } catch (err) {
-    console.error('[Branding] Failed to load settings:', err);
+    console.error('[Branding] Failed to read settings:', err);
+    return null;
   }
 }
 
-function persist(): void {
+function persist(data: BrandingSettings): void {
   const path = getSettingsPath();
   if (!path) return;
   try {
     const dir = getBrandingDir()!;
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(path, JSON.stringify(settings, null, 2), 'utf8');
+    writeFileSync(path, JSON.stringify(data, null, 2), 'utf8');
   } catch (err) {
     console.error('[Branding] Failed to write settings:', err);
   }
@@ -94,16 +92,22 @@ function persist(): void {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
+/**
+ * Returns current branding settings.
+ * When DATA_DIR is set, always reads from disk so layout (server component)
+ * and the admin API route (which may have separate module instances in Next.js
+ * App Router) always see the latest saved state.
+ */
 export function getSettings(): BrandingSettings {
-  ensureLoaded();
-  return { ...settings };
+  return readFromDisk() ?? memSettings;
 }
 
 export function updateSettings(
   patch: Partial<Omit<BrandingSettings, 'updatedAt'>>,
 ): BrandingSettings {
-  ensureLoaded();
-  settings = { ...settings, ...patch, updatedAt: new Date().toISOString() };
-  persist();
-  return { ...settings };
+  const current = readFromDisk() ?? memSettings;
+  const next: BrandingSettings = { ...current, ...patch, updatedAt: new Date().toISOString() };
+  memSettings = next;
+  persist(next);
+  return { ...next };
 }
