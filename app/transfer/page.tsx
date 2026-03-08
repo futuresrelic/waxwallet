@@ -1,7 +1,8 @@
 'use client';
 // ─── Bulk Asset Transfer Tool ─────────────────────────────────────────────────
 // Transfers all (or selected) NFTs from a connected WAX wallet to another.
-// Sends in configurable batches; auto-PowerUps if CPU/NET limits are hit.
+// Sends in configurable batches; auto-PowerUps (bundled in the same tx) if
+// CPU/NET limits are hit.
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import Link from 'next/link';
@@ -19,6 +20,16 @@ const WAX_ACCOUNT_RE = /^[a-z1-5.]{1,12}([a-z1-5]|[1-5])?$/;
 
 type Step = 'setup' | 'preview' | 'running' | 'done';
 
+const SORT_OPTIONS = [
+  { value: 'asset_id:desc', label: 'Newest first' },
+  { value: 'asset_id:asc',  label: 'Oldest first' },
+  { value: 'template_mint:asc', label: 'Mint # (low→high)' },
+  { value: 'template_mint:desc', label: 'Mint # (high→low)' },
+  { value: 'name:asc', label: 'Name (A→Z)' },
+  { value: 'name:desc', label: 'Name (Z→A)' },
+] as const;
+type SortValue = (typeof SORT_OPTIONS)[number]['value'];
+
 interface LogLine {
   kind: 'info' | 'ok' | 'err' | 'powerup';
   text: string;
@@ -27,8 +38,12 @@ interface LogLine {
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
-/** Fetch every matching asset (auto-paginates at limit=1000). */
-async function fetchAllAssets(owner: string, collections: string[]): Promise<AssetData[]> {
+/** Fetch every matching asset (auto-paginates, bypasses the 100/page cap). */
+async function fetchAllAssets(
+  owner: string,
+  collections: string[],
+  sort: SortValue,
+): Promise<AssetData[]> {
   const all: AssetData[] = [];
   let page = 1;
   const limit = 1000;
@@ -38,8 +53,8 @@ async function fetchAllAssets(owner: string, collections: string[]): Promise<Ass
       owner,
       limit: String(limit),
       page: String(page),
-      sort: 'collection_name',
-      order: 'asc',
+      sort,
+      _uncapped: 'true',  // bypass the default 100/page server cap
     });
     if (collections.length > 0) params.set('collection_name', collections.join(','));
 
@@ -50,20 +65,24 @@ async function fetchAllAssets(owner: string, collections: string[]): Promise<Ass
 
     const batch = json.data ?? [];
     all.push(...batch);
-    if (batch.length < limit) break; // last page
+    if (batch.length < limit) break; // last page reached
     page++;
   }
 
-  // Only transferable, non-burned assets
+  // Only show transferable, non-burned assets
   return all.filter(a => a.is_transferable && !a.burned_by_account);
 }
 
 /** Fetch collection list for an account. */
 async function fetchCollections(owner: string): Promise<string[]> {
-  const res = await fetch(`/api/collections?owner=${encodeURIComponent(owner)}`);
+  const res = await fetch(`/api/collections?owner=${encodeURIComponent(owner)}&refresh=true`);
   if (!res.ok) return [];
-  const json = await res.json() as { success: boolean; data?: { collection_name: string }[] };
-  return (json.data ?? []).map(c => c.collection_name);
+  const json = await res.json() as {
+    success: boolean;
+    data?: { collections: Array<{ collection: { collection_name: string }; assets: number }> };
+  };
+  // data is an AccountSummary object: { collections: [{ collection: {...}, assets: N }] }
+  return (json.data?.collections ?? []).map(c => c.collection.collection_name);
 }
 
 /** Resolve IPFS image URL from an asset. */
@@ -85,6 +104,7 @@ export default function TransferPage() {
   const [destWallet, setDestWallet] = useState('');
   const [memo, setMemo] = useState('Bulk transfer');
   const [batchSize, setBatchSize] = useState(50);
+  const [sortValue, setSortValue] = useState<SortValue>('asset_id:desc');
   const [powerUpEnabled, setPowerUpEnabled] = useState(true);
   const [powerUpMax, setPowerUpMax] = useState('1.00000000 WAX');
   const [availableCollections, setAvailableCollections] = useState<string[]>([]);
@@ -101,6 +121,7 @@ export default function TransferPage() {
 
   // ── Running ───────────────────────────────────────────────────────────────
   const [transferred, setTransferred] = useState(0);
+  const [totalSelected, setTotalSelected] = useState(0);
   const [currentBatch, setCurrentBatch] = useState(0);
   const [totalBatches, setTotalBatches] = useState(0);
   const [log, setLog] = useState<LogLine[]>([]);
@@ -111,12 +132,10 @@ export default function TransferPage() {
 
   // ── Effects ───────────────────────────────────────────────────────────────
 
-  // Pre-fill source wallet from connected account
   useEffect(() => {
     if (connectedAccount && !sourceWallet) setSourceWallet(connectedAccount);
   }, [connectedAccount, sourceWallet]);
 
-  // Auto-scroll log
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [log]);
@@ -146,7 +165,7 @@ export default function TransferPage() {
     setLoadingAssets(true);
     setLoadError('');
     try {
-      const assets = await fetchAllAssets(sourceWallet.trim(), selectedCollections);
+      const assets = await fetchAllAssets(sourceWallet.trim(), selectedCollections, sortValue);
       setAllAssets(assets);
       setSelected(new Set(assets.map(a => a.asset_id)));
     } catch (e) {
@@ -197,20 +216,14 @@ export default function TransferPage() {
     const actor = String(session.actor);
     const dest = destWallet.trim();
 
-    // Build ordered list: respect the selection set, preserve collection grouping
-    const ids = allAssets
-      .filter(a => selected.has(a.asset_id))
-      .map(a => a.asset_id);
+    const ids = allAssets.filter(a => selected.has(a.asset_id)).map(a => a.asset_id);
+    if (ids.length === 0) { addLog('err', 'No assets selected.'); return; }
 
-    if (ids.length === 0) {
-      addLog('err', 'No assets selected.');
-      return;
-    }
-
-    // Split into batches
     const batches: string[][] = [];
     for (let i = 0; i < ids.length; i += batchSize) batches.push(ids.slice(i, i + batchSize));
 
+    const total = ids.length;
+    setTotalSelected(total);
     setTotalBatches(batches.length);
     setTransferred(0);
     setCurrentBatch(0);
@@ -218,17 +231,17 @@ export default function TransferPage() {
     stopRef.current = false;
     setStep('running');
 
-    addLog('info', `Starting: ${ids.length} assets → ${dest} in ${batches.length} batches (${batchSize}/batch)`);
+    addLog('info', `Starting: ${total} assets → ${dest} in ${batches.length} batches (${batchSize}/batch)`);
 
     let done = 0;
 
     for (let bi = 0; bi < batches.length; bi++) {
-      // ── Pause / Stop ────────────────────────────────────────────────────
+      // Pause / Stop
       while (pausedRef.current && !stopRef.current) {
         await new Promise<void>(r => setTimeout(r, 300));
       }
       if (stopRef.current) {
-        addLog('info', `Transfer stopped after ${done}/${ids.length} assets.`);
+        addLog('info', `Transfer stopped after ${done}/${total} assets.`);
         return;
       }
 
@@ -236,30 +249,50 @@ export default function TransferPage() {
       setCurrentBatch(bi + 1);
       addLog('info', `Batch ${bi + 1}/${batches.length}: sending ${batch.length} asset${batch.length > 1 ? 's' : ''}…`);
 
-      // ── Attempt loop (up to 3, +1 if powerup succeeds) ──────────────────
+      // Build the transfer action (reused in all attempts)
+      const transferAction = {
+        account: 'atomicassets',
+        name: 'transfer',
+        authorization: [{ actor, permission: 'active' }],
+        data: {
+          from: actor,
+          to: dest,
+          asset_ids: batch,
+          memo: memo || 'Bulk transfer',
+        },
+      };
+
+      const powerUpAction = {
+        account: 'eosio',
+        name: 'powerup',
+        authorization: [{ actor, permission: 'active' }],
+        data: {
+          payer: actor,
+          receiver: actor,
+          days: 1,
+          net_frac: 10000000,   // ~0.001% of NET pool
+          cpu_frac: 1000000000, // ~0.1% of CPU pool
+          max_payment: powerUpMax,
+        },
+      };
+
       let batchDone = false;
       let poweredUp = false;
       let maxAttempts = 3;
 
       for (let attempt = 0; attempt < maxAttempts && !batchDone; attempt++) {
         try {
-          await session.transact({
-            actions: [{
-              account: 'atomicassets',
-              name: 'transfer',
-              authorization: [{ actor, permission: 'active' }],
-              data: {
-                from: actor,
-                to: dest,
-                asset_ids: batch,
-                memo: memo || 'Bulk transfer',
-              },
-            }],
-          });
+          // On a powerup retry, prepend the powerup action to the SAME transaction
+          // so the user sees ONE wallet dialog that includes both actions.
+          const actions = poweredUp && attempt > 0
+            ? [powerUpAction, transferAction]
+            : [transferAction];
+
+          await session.transact({ actions });
           batchDone = true;
           done += batch.length;
           setTransferred(done);
-          addLog('ok', `Batch ${bi + 1} ✓ — ${done}/${ids.length} transferred`);
+          addLog('ok', `Batch ${bi + 1} ✓ — ${done}/${total} transferred`);
 
         } catch (err) {
           const msg = String(err).toLowerCase();
@@ -267,31 +300,14 @@ export default function TransferPage() {
                              msg.includes('resource') || msg.includes('ram');
 
           if (isResource && powerUpEnabled && !poweredUp) {
-            addLog('powerup', `Resource limit hit — running PowerUp (max ${powerUpMax})…`);
-            try {
-              await session.transact({
-                actions: [{
-                  account: 'eosio',
-                  name: 'powerup',
-                  authorization: [{ actor, permission: 'active' }],
-                  data: {
-                    payer: actor,
-                    receiver: actor,
-                    days: 1,
-                    net_frac: 10000000,   // ~0.001% of NET pool
-                    cpu_frac: 1000000000, // ~0.1% of CPU pool
-                    max_payment: powerUpMax,
-                  },
-                }],
-              });
-              addLog('ok', 'PowerUp successful — retrying batch…');
-              poweredUp = true;
-              maxAttempts++;  // one extra attempt after powerup
-            } catch (puErr) {
-              addLog('err', `PowerUp failed: ${String(puErr).slice(0, 160)}`);
-              addLog('err', `Skipping batch ${bi + 1}.`);
-              break;
-            }
+            // Flag that next attempt should bundle the PowerUp action
+            poweredUp = true;
+            maxAttempts++;
+            addLog('powerup',
+              `Resource limit hit — next attempt will include PowerUp (max ${powerUpMax}) in the same transaction…`
+            );
+            // Brief pause before retry
+            await new Promise<void>(r => setTimeout(r, 500));
           } else {
             const short = String(err).replace(/^Error:\s*/i, '').slice(0, 160);
             addLog('err', `Batch ${bi + 1} (attempt ${attempt + 1}): ${short}`);
@@ -300,7 +316,11 @@ export default function TransferPage() {
         }
       }
 
-      // Brief pause between successful batches to avoid rate-limiting
+      if (!batchDone) {
+        addLog('err', `Batch ${bi + 1} ultimately failed — skipped ${batch.length} assets.`);
+      }
+
+      // Brief pause between successful batches
       if (batchDone && bi < batches.length - 1) {
         await new Promise<void>(r => setTimeout(r, 400));
       }
@@ -311,10 +331,10 @@ export default function TransferPage() {
   };
 
   const togglePause = () => {
-    pausedRef.current = !pausedRef.current;
-    setPaused(p => !p);
-    if (pausedRef.current) addLog('info', 'Paused — will resume after current batch.');
-    else addLog('info', 'Resumed.');
+    const next = !pausedRef.current;
+    pausedRef.current = next;
+    setPaused(next);
+    addLog('info', next ? 'Paused — will resume after current batch.' : 'Resumed.');
   };
 
   const stopTransfer = () => {
@@ -331,6 +351,7 @@ export default function TransferPage() {
     setTransferred(0);
     setCurrentBatch(0);
     setTotalBatches(0);
+    setTotalSelected(0);
     setPaused(false);
   };
 
@@ -342,14 +363,13 @@ export default function TransferPage() {
   const destValid = WAX_ACCOUNT_RE.test(destWallet.trim());
   const canProceed = sourceValid && destValid && destWallet.trim() !== sourceWallet.trim();
 
-  // Group assets by collection for preview
   const byCollection = allAssets.reduce<Record<string, AssetData[]>>((acc, a) => {
     const col = a.collection.collection_name;
     (acc[col] ??= []).push(a);
     return acc;
   }, {});
 
-  const progressPct = totalBatches > 0 ? Math.round((transferred / selectedCount) * 100) : 0;
+  const progressPct = totalSelected > 0 ? Math.round((transferred / totalSelected) * 100) : 0;
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -375,7 +395,6 @@ export default function TransferPage() {
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col gap-5">
             <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">Wallets</h2>
 
-            {/* Source wallet */}
             <div className="flex flex-col gap-1.5">
               <label className="text-xs text-zinc-400">Source Wallet (from)</label>
               <div className="flex gap-2">
@@ -383,12 +402,12 @@ export default function TransferPage() {
                   value={sourceWallet}
                   onChange={e => setSourceWallet(e.target.value.trim().toLowerCase())}
                   onBlur={loadCollections}
-                  placeholder="e.g. mywallet.wax"
+                  placeholder="e.g. mywallet.wam"
                   className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
                 />
                 {connectedAccount && connectedAccount !== sourceWallet && (
                   <button
-                    onClick={() => { setSourceWallet(connectedAccount); }}
+                    onClick={() => setSourceWallet(connectedAccount)}
                     className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-amber-400 hover:bg-zinc-700 transition-colors whitespace-nowrap flex items-center gap-1"
                   >
                     <Wallet className="w-3 h-3" />
@@ -401,13 +420,12 @@ export default function TransferPage() {
               )}
             </div>
 
-            {/* Destination wallet */}
             <div className="flex flex-col gap-1.5">
               <label className="text-xs text-zinc-400">Destination Wallet (to)</label>
               <input
                 value={destWallet}
                 onChange={e => setDestWallet(e.target.value.trim().toLowerCase())}
-                placeholder="e.g. recipient.wax"
+                placeholder="e.g. recipient.wam"
                 className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
               />
               {destWallet && !destValid && (
@@ -423,7 +441,7 @@ export default function TransferPage() {
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">
-                Collections
+                Filter by Collection
               </h2>
               <button
                 onClick={loadCollections}
@@ -433,20 +451,20 @@ export default function TransferPage() {
                 {loadingCollections
                   ? <Loader2 className="w-3 h-3 animate-spin" />
                   : <RefreshCw className="w-3 h-3" />}
-                {loadingCollections ? 'Loading…' : 'Refresh'}
+                {loadingCollections ? 'Loading…' : 'Load Collections'}
               </button>
             </div>
 
             {availableCollections.length === 0 ? (
               <p className="text-xs text-zinc-500">
                 {sourceValid
-                  ? 'Enter a source wallet and click Refresh to load collections, or leave unfiltered to transfer everything.'
+                  ? 'Click "Load Collections" to filter by collection, or leave unfiltered to transfer everything.'
                   : 'Enter a valid source wallet first.'}
               </p>
             ) : (
               <>
                 <p className="text-xs text-zinc-500">
-                  Select specific collections, or leave all unselected to transfer the entire wallet.
+                  Click to select specific collections (leave all unselected = transfer everything).
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {availableCollections.map(col => {
@@ -467,9 +485,17 @@ export default function TransferPage() {
                   })}
                 </div>
                 {selectedCollections.length > 0 && (
-                  <p className="text-xs text-amber-400">
-                    Filtering: {selectedCollections.length} collection{selectedCollections.length > 1 ? 's' : ''}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-amber-400">
+                      Filtered to {selectedCollections.length} collection{selectedCollections.length > 1 ? 's' : ''}
+                    </p>
+                    <button
+                      onClick={() => setSelectedCollections([])}
+                      className="text-xs text-zinc-500 hover:text-zinc-300"
+                    >
+                      (clear)
+                    </button>
+                  </div>
                 )}
               </>
             )}
@@ -498,6 +524,29 @@ export default function TransferPage() {
                   />
                 </div>
 
+                {/* Sort order */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-zinc-400">Sort Order</label>
+                  <div className="flex flex-wrap gap-2">
+                    {SORT_OPTIONS.map(opt => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setSortValue(opt.value)}
+                        className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+                          sortValue === opt.value
+                            ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                            : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-zinc-500">
+                    Determines the order assets are transferred — useful when you want oldest / lowest mint first.
+                  </p>
+                </div>
+
                 {/* Batch size */}
                 <div className="flex flex-col gap-2">
                   <label className="text-xs text-zinc-400">Assets per Transaction</label>
@@ -516,7 +565,9 @@ export default function TransferPage() {
                       </button>
                     ))}
                   </div>
-                  <p className="text-xs text-zinc-500">Larger batches = fewer transactions but higher CPU cost per transaction.</p>
+                  <p className="text-xs text-zinc-500">
+                    Larger batches = fewer transactions but higher CPU cost each.
+                  </p>
                 </div>
 
                 {/* PowerUp */}
@@ -524,7 +575,7 @@ export default function TransferPage() {
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => setPowerUpEnabled(v => !v)}
-                      className={`w-10 h-5 rounded-full transition-colors relative ${powerUpEnabled ? 'bg-amber-500' : 'bg-zinc-700'}`}
+                      className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${powerUpEnabled ? 'bg-amber-500' : 'bg-zinc-700'}`}
                     >
                       <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${powerUpEnabled ? 'left-5' : 'left-0.5'}`} />
                     </button>
@@ -534,7 +585,7 @@ export default function TransferPage() {
                     </span>
                   </div>
                   {powerUpEnabled && (
-                    <div className="flex flex-col gap-1.5 ml-13">
+                    <div className="flex flex-col gap-1.5 pl-13">
                       <label className="text-xs text-zinc-400">Max WAX to spend per PowerUp</label>
                       <input
                         value={powerUpMax}
@@ -543,9 +594,8 @@ export default function TransferPage() {
                         className="w-56 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
                       />
                       <p className="text-xs text-zinc-500">
-                        If a batch hits resource limits, the tool will call{' '}
-                        <code className="text-zinc-400">eosio::powerup</code> automatically before retrying.
-                        PowerUp costs real WAX — set a cap you&apos;re comfortable with.
+                        On a CPU/NET error, PowerUp is bundled into the <em>same</em> transaction as the
+                        transfer so only one wallet confirmation is needed.
                       </p>
                     </div>
                   )}
@@ -554,18 +604,16 @@ export default function TransferPage() {
             )}
           </div>
 
-          {/* Warning if wallet not connected */}
+          {/* Wallet not connected warning */}
           {!connectedAccount && (
             <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
               <AlertCircle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
               <p className="text-sm text-amber-300">
-                You must connect your WAX wallet to sign transactions. Click{' '}
-                <strong>Connect</strong> in the top-right corner, then return here.
+                Connect your WAX wallet (top-right) before transferring — you need to sign each transaction.
               </p>
             </div>
           )}
 
-          {/* Next button */}
           <div className="flex justify-end">
             <button
               onClick={() => { setStep('preview'); loadAssets(); }}
@@ -585,7 +633,7 @@ export default function TransferPage() {
           {loadingAssets && (
             <div className="flex flex-col items-center gap-3 py-16">
               <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
-              <p className="text-zinc-400 text-sm">Loading assets…</p>
+              <p className="text-zinc-400 text-sm">Loading all assets…</p>
             </div>
           )}
 
@@ -601,7 +649,7 @@ export default function TransferPage() {
 
           {!loadingAssets && !loadError && allAssets.length === 0 && (
             <div className="text-center py-16 text-zinc-500">
-              No transferable assets found in this wallet.
+              No transferable assets found in this wallet{selectedCollections.length > 0 ? ' for the selected collections' : ''}.
             </div>
           )}
 
@@ -643,7 +691,6 @@ export default function TransferPage() {
 
                 return (
                   <div key={col} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                    {/* Collection header */}
                     <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
                       <button
                         onClick={() => toggleCollectionSelection(col)}
@@ -670,7 +717,6 @@ export default function TransferPage() {
                       </button>
                     </div>
 
-                    {/* Asset thumbnails */}
                     {!collapsed && (
                       <div className="p-3 grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-2">
                         {assets.map(asset => {
@@ -680,7 +726,7 @@ export default function TransferPage() {
                             <button
                               key={asset.asset_id}
                               onClick={() => toggleAsset(asset.asset_id)}
-                              title={`${asset.name} #${asset.template_mint}`}
+                              title={`${asset.name}${asset.template_mint ? ` #${asset.template_mint}` : ''}`}
                               className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
                                 isSel
                                   ? 'border-amber-500 opacity-100'
@@ -738,24 +784,21 @@ export default function TransferPage() {
         </div>
       )}
 
-      {/* ── STEP 3: RUNNING ──────────────────────────────────────────────────── */}
+      {/* ── STEP 3: RUNNING / DONE ────────────────────────────────────────────── */}
       {(step === 'running' || step === 'done') && (
         <div className="flex flex-col gap-6">
-          {/* Progress card */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">
                 {step === 'done' ? 'Transfer Complete' : 'Transferring…'}
               </h2>
-              {step === 'done' && (
-                <CheckCircle2 className="w-5 h-5 text-green-400" />
-              )}
+              {step === 'done' && <CheckCircle2 className="w-5 h-5 text-green-400" />}
             </div>
 
             {/* Progress bar */}
             <div>
               <div className="flex justify-between text-xs text-zinc-400 mb-1.5">
-                <span>{transferred.toLocaleString()} / {selectedCount.toLocaleString()} assets</span>
+                <span>{transferred.toLocaleString()} / {totalSelected.toLocaleString()} assets</span>
                 <span>
                   {step === 'running'
                     ? `Batch ${currentBatch} of ${totalBatches}`
@@ -771,16 +814,13 @@ export default function TransferPage() {
               <div className="text-right text-xs text-zinc-500 mt-1">{progressPct}%</div>
             </div>
 
-            {/* Controls */}
             {step === 'running' && (
               <div className="flex gap-3">
                 <button
                   onClick={togglePause}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-zinc-700 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
                 >
-                  {paused
-                    ? <><Play className="w-3.5 h-3.5" /> Resume</>
-                    : <><Pause className="w-3.5 h-3.5" /> Pause</>}
+                  {paused ? <><Play className="w-3.5 h-3.5" /> Resume</> : <><Pause className="w-3.5 h-3.5" /> Pause</>}
                 </button>
                 <button
                   onClick={stopTransfer}
@@ -823,9 +863,7 @@ export default function TransferPage() {
               <p className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Transaction Log</p>
             </div>
             <div className="max-h-80 overflow-y-auto p-4 flex flex-col gap-1.5 font-mono text-xs">
-              {log.length === 0 && (
-                <p className="text-zinc-600">No entries yet…</p>
-              )}
+              {log.length === 0 && <p className="text-zinc-600">No entries yet…</p>}
               {log.map((line, i) => (
                 <div key={i} className="flex gap-2 items-start">
                   <span className="text-zinc-600 shrink-0">{line.ts}</span>

@@ -27,6 +27,8 @@ export async function GET(req: NextRequest) {
   const limit           = Number(searchParams.get('limit') ?? 40);
   const burned          = searchParams.get('burned') === 'true';
   const attr_rarity     = searchParams.get('attr_rarity') ?? undefined;
+  // Allow bulk-fetch callers (e.g. the Transfer tool) to bypass the default 100/page cap.
+  const _uncapped       = searchParams.get('_uncapped') === 'true';
 
   // Generic attribute filters (a.key=value)
   const attrFilters: Record<string, string> = {};
@@ -65,6 +67,7 @@ export async function GET(req: NextRequest) {
     const assets = await getAssets({
       owner, collection_name, schema_name, template_id, match,
       sort, page, limit, burned, attr_rarity, attr_filters: attrFilters,
+      _uncapped,
     }, userEndpoint);
 
     await cacheSet(cacheKey, assets, ASSETS_TTL);
