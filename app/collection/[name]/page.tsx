@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useParams } from 'next/navigation';
 import {
   AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp,
   Database, Info, Layers, Loader2, RefreshCw, Shield,
@@ -176,12 +176,9 @@ function AnalyzerSection({ result }: { result: AnalyzerResult }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function CollectionResourcesPage({
-  params,
-}: {
-  params: { name: string };
-}) {
-  const collectionName = params.name;
+export default function CollectionResourcesPage() {
+  const rawParams = useParams();
+  const collectionName = Array.isArray(rawParams.name) ? rawParams.name[0] : (rawParams.name ?? '');
   const searchParams = useSearchParams();
   const { connectedAccount } = useWalletStore();
 
