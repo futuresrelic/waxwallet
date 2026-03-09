@@ -7,14 +7,17 @@ import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Activity, AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp,
-  Info, Loader2, RefreshCw, Search, Zap, Database, Clock, Send,
+  ExternalLink, Info, Loader2, RefreshCw, Search, Sparkles, Trash2, Zap,
+  Database, Clock, Send,
 } from 'lucide-react';
 import { useWalletStore } from '@/lib/store';
-import { parseAccountResources, formatUs, formatBytes, pctUsed } from '@/lib/analyzers/accountResources';
+import { formatUs, formatBytes, pctUsed } from '@/lib/analyzers/accountResources';
 import { analyzeRecentActions }    from '@/lib/analyzers/recentActions';
 import { generateRecommendations, recommendBatchSize } from '@/lib/analyzers/recommendations';
+import { aggregateCleanupOpportunities } from '@/lib/analyzers/ram/cleanupOpportunities';
 import type {
   WaxAccount, HyperionAction, AnalyzerResult, Recommendation, AnalyzerSeverity,
+  CleanupItem,
 } from '@/lib/analyzers/types';
 
 // ── Severity helpers ──────────────────────────────────────────────────────────
@@ -101,6 +104,79 @@ function RecommendationItem({ rec }: { rec: Recommendation }) {
   );
 }
 
+function CleanupCard({ item }: { item: CleanupItem }) {
+  const reclaimColor =
+    item.reclaimable === 'yes'   ? 'text-green-400' :
+    item.reclaimable === 'maybe' ? 'text-amber-400' : 'text-zinc-500';
+
+  const payerLabel =
+    item.payer === 'me'       ? 'You' :
+    item.payer === 'contract' ? 'Contract' :
+    item.payer === 'other'    ? 'Other account' : 'Unknown';
+
+  return (
+    <div className="p-3 rounded-lg bg-zinc-800/50 border border-zinc-700/60 flex flex-col gap-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Trash2 className="w-3.5 h-3.5 text-zinc-500 shrink-0 mt-0.5" />
+          <span className="text-sm font-medium text-white">{item.title}</span>
+        </div>
+        <span className={`text-[10px] font-semibold uppercase tracking-wider shrink-0 ${reclaimColor}`}>
+          {item.reclaimable === 'yes' ? 'Reclaimable' : item.reclaimable === 'maybe' ? 'Maybe' : 'Permanent'}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div>
+          <p className="text-zinc-600 uppercase tracking-wider text-[10px]">Rows</p>
+          <p className="text-zinc-300 font-mono">{item.count.toLocaleString()}</p>
+        </div>
+        <div>
+          <p className="text-zinc-600 uppercase tracking-wider text-[10px]">Est. bytes</p>
+          <p className="text-zinc-300 font-mono">~{item.estimatedBytes.toLocaleString()}</p>
+        </div>
+        <div>
+          <p className="text-zinc-600 uppercase tracking-wider text-[10px]">RAM payer</p>
+          <p className={`font-medium ${item.payer === 'me' ? 'text-amber-400' : 'text-zinc-400'}`}>{payerLabel}</p>
+        </div>
+      </div>
+
+      {item.howToReclaim && (
+        <p className="text-xs text-zinc-500 leading-relaxed">
+          <span className="text-zinc-400 font-medium">How:</span> {item.howToReclaim}
+        </p>
+      )}
+
+      {item.actionLinks.length > 0 && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {item.actionLinks.map((link, i) => (
+            link.kind === 'external' ? (
+              <a
+                key={i}
+                href={link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-xs text-zinc-300 hover:text-white transition-colors"
+              >
+                <ExternalLink className="w-3 h-3" />
+                {link.label}
+              </a>
+            ) : (
+              <a
+                key={i}
+                href={link.href}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-xs text-amber-400 hover:text-amber-300 transition-colors border border-amber-500/30"
+              >
+                {link.label}
+              </a>
+            )
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AnalyzerSection({ result }: { result: AnalyzerResult }) {
   const [open, setOpen] = useState(true);
 
@@ -156,6 +232,16 @@ function AnalyzerSection({ result }: { result: AnalyzerResult }) {
           {result.notes && (
             <div className="px-4 py-2.5 border-t border-zinc-800 text-xs text-zinc-500 italic">
               {result.notes}
+            </div>
+          )}
+
+          {/* Cleanup items for this analyzer */}
+          {result.cleanupItems && result.cleanupItems.length > 0 && (
+            <div className="p-4 border-t border-zinc-800 flex flex-col gap-2">
+              <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1">Cleanup Actions</p>
+              {result.cleanupItems.map(item => (
+                <CleanupCard key={item.id} item={item} />
+              ))}
             </div>
           )}
         </div>
@@ -273,7 +359,6 @@ export default function ResourcesPage() {
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
-  const resourceResult  = accountData ? parseAccountResources(accountData)          : null;
   const actionsResult   = historyData  ? analyzeRecentActions(historyData.actions)  : null;
   const ramSuspectCount = ramData
     ? ramData.flatMap(r => r.rows)
@@ -283,6 +368,7 @@ export default function ResourcesPage() {
   const recommendations = accountData && historyData
     ? generateRecommendations(accountData, historyData.actions, ramSuspectCount)
     : [];
+  const cleanupSummary = ramData ? aggregateCleanupOpportunities(ramData) : null;
 
   const isAnalyzing = loadingAccount || loadingHistory || loadingRam;
   const hasAnyData  = accountData || historyData || ramData;
@@ -478,6 +564,52 @@ export default function ResourcesPage() {
               <RecommendationItem key={rec.id} rec={rec} />
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── SECTION 2b: Cleanup Opportunities ───────────────────────────── */}
+      {cleanupSummary && cleanupSummary.reclaimable.length > 0 && (
+        <div>
+          <SectionHeader
+            icon={<Sparkles className="w-4 h-4 text-amber-400" />}
+            title="Cleanup Opportunities"
+            subtitle={`${cleanupSummary.totalReclaimableCount} rows · ~${cleanupSummary.totalReclaimableBytes.toLocaleString()} bytes potentially reclaimable`}
+          />
+
+          {/* Summary bar */}
+          <div className="mb-4 p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 flex items-center gap-4">
+            <div className="flex-1">
+              <p className="text-sm text-white font-semibold">
+                {cleanupSummary.totalReclaimableBytes.toLocaleString()} bytes
+                {' '}<span className="text-zinc-400 font-normal">could be recovered</span>
+              </p>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                {cleanupSummary.reclaimable.filter(c => c.reclaimable === 'yes').length} confirmed reclaimable
+                {cleanupSummary.reclaimable.filter(c => c.reclaimable === 'maybe').length > 0 &&
+                  ` + ${cleanupSummary.reclaimable.filter(c => c.reclaimable === 'maybe').length} possible`}
+              </p>
+            </div>
+            <Trash2 className="w-8 h-8 text-amber-500/30 shrink-0" />
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {cleanupSummary.reclaimable.map(item => (
+              <CleanupCard key={item.id} item={item} />
+            ))}
+          </div>
+
+          {cleanupSummary.notReclaimable.length > 0 && (
+            <details className="mt-3">
+              <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-400 transition-colors select-none">
+                {cleanupSummary.notReclaimable.length} permanent RAM obligation{cleanupSummary.notReclaimable.length > 1 ? 's' : ''} (not reclaimable)
+              </summary>
+              <div className="mt-2 flex flex-col gap-2">
+                {cleanupSummary.notReclaimable.map(item => (
+                  <CleanupCard key={item.id} item={item} />
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       )}
 

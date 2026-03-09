@@ -1,17 +1,19 @@
 // ─── AtomicAssets Contract RAM Analyzer ──────────────────────────────────────
 // Inspects open P2P trade offers sent/received via atomicassets.
 
-import type { AnalyzerResult, TableQueryFn } from '../types';
+import type { AnalyzerResult, CleanupItem, TableQueryFn } from '../types';
+import { buildP2POfferLinks } from '@/lib/link-builders';
 
 export async function analyzeAtomicAssetsTables(
   account: string,
   query: TableQueryFn,
 ): Promise<AnalyzerResult> {
   const rows: AnalyzerResult['rows'] = [];
-  let suspectCount = 0;
+  const cleanupItems: CleanupItem[] = [];
+  let sentCount = 0;
   const errors: string[] = [];
 
-  // ── Open offers sent by this account (index_position 2 = sender_name) ──────
+  // ── Open offers SENT by this account (index_position 2 = sender_name) ──────
   try {
     const r = await query({
       code: 'atomicassets',
@@ -23,20 +25,37 @@ export async function analyzeAtomicAssetsTables(
       upper_bound: account,
       limit: 500,
     });
-    const count = r.length;
-    suspectCount += count;
+
+    sentCount = r.length;
+    const bytes = sentCount * 500;
+
     rows.push({
       label: 'Open P2P trade offers sent by you',
-      value: count,
-      detail: count > 0
-        ? `~${(count * 500).toLocaleString()} bytes estimated. Cancelling frees RAM.`
+      value: sentCount,
+      detail: sentCount > 0
+        ? `~${bytes.toLocaleString()} bytes — cancelling frees your RAM`
         : 'None found',
     });
+
+    if (sentCount > 0) {
+      cleanupItems.push({
+        id: 'aa_offers_sent',
+        title: `${sentCount} open P2P trade offer${sentCount > 1 ? 's' : ''} sent`,
+        count: sentCount,
+        estimatedBytes: bytes,
+        reclaimable: 'yes',
+        confidence: 'likely',
+        payer: 'me',
+        howToReclaim: 'Cancel the sent offers from a marketplace or wallet UI (atomicassets::canceloffer).',
+        payerNote: 'You (as sender) are the RAM payer for offers you created.',
+        actionLinks: buildP2POfferLinks(account),
+      });
+    }
   } catch (e) {
     errors.push('offers (sent): ' + String(e));
   }
 
-  // ── Open offers received by this account (index_position 3 = recipient_name) ─
+  // ── Open offers RECEIVED by this account (index_position 3 = recipient_name) ─
   try {
     const r = await query({
       code: 'atomicassets',
@@ -48,29 +67,37 @@ export async function analyzeAtomicAssetsTables(
       upper_bound: account,
       limit: 500,
     });
-    const count = r.length;
+
+    const rcvdCount = r.length;
+
     rows.push({
       label: 'Open P2P trade offers received',
-      value: count,
-      detail: count > 0
-        ? 'Sender holds RAM for these rows — not you. Accepting or declining clears them.'
+      value: rcvdCount,
+      detail: rcvdCount > 0
+        ? 'The SENDER pays RAM for these — not you. Accept or decline to remove them.'
         : 'None found',
     });
+
+    // Not a cleanup item for this account since they are not the RAM payer
+    if (rcvdCount > 0) {
+      rows.push({
+        label: '↳ Action for received offers',
+        value: '—',
+        detail: 'Accept or decline from any marketplace UI. RAM is held by the sender.',
+      });
+    }
   } catch (e) {
     errors.push('offers (received): ' + String(e));
   }
 
-  // ── Collection authorizations / notifyaccs ─────────────────────────────────
-  // Each collection this account is an authorized_account or notify_account of
-  // stores their name in an array — the collection creator bears that RAM.
-  // We include this as "inferred" context only.
+  // ── Collection auth/notify context (inferred) ──────────────────────────────
   rows.push({
-    label: 'Collection auth/notify entries',
+    label: 'Collection auth/notify entries (inferred)',
     value: 'inferred',
-    detail: 'If you are an authorized account on collections, the collection contract row holds that RAM (not your wallet). Not directly quantifiable here.',
+    detail: 'If you are an authorized account on any collection, the collection row holds those entries — NOT your wallet RAM directly.',
   });
 
-  const severity = suspectCount > 20 ? 'info' : 'ok';
+  const severity = sentCount > 20 ? 'info' : 'ok';
 
   return {
     id: 'ram_atomicassets',
@@ -79,6 +106,7 @@ export async function analyzeAtomicAssetsTables(
     severity,
     confidence: 'likely',
     rows,
+    cleanupItems,
     notes: errors.length > 0
       ? `Some table reads failed (partial results): ${errors.join('; ')}`
       : undefined,

@@ -9,6 +9,36 @@ export interface AnalyzerRow {
   detail?: string;
 }
 
+/** A clickable action associated with a cleanup item. */
+export interface ActionLink {
+  label: string;
+  href: string;
+  /** 'external' opens in a new tab; 'copy' copies `copyValue` to clipboard. */
+  kind: 'primary' | 'external' | 'copy';
+  copyValue?: string;
+}
+
+/**
+ * A single reclaimable / actionable item from an analyzer.
+ * These are aggregated into the top-level "Cleanup Opportunities" section.
+ */
+export interface CleanupItem {
+  id: string;
+  title: string;
+  count: number;
+  estimatedBytes: number;
+  /** Whether this account can actually reclaim this RAM. */
+  reclaimable: 'yes' | 'no' | 'maybe';
+  confidence: AnalyzerConfidence;
+  /** Who holds the RAM obligation. */
+  payer: 'me' | 'contract' | 'other' | 'unknown';
+  /** Short human explanation of how to reclaim. */
+  howToReclaim?: string;
+  /** Context note explaining why this account is the payer. */
+  payerNote?: string;
+  actionLinks: ActionLink[];
+}
+
 export interface AnalyzerResult {
   id: string;
   title: string;
@@ -18,6 +48,8 @@ export interface AnalyzerResult {
   rows: AnalyzerRow[];
   notes?: string;
   error?: string;
+  /** Reclaimable items extracted from this result for the Cleanup Opportunities section. */
+  cleanupItems?: CleanupItem[];
 }
 
 export interface Recommendation {

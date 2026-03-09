@@ -4,6 +4,58 @@ Records of significant features and fixes made by AI agents.
 
 ---
 
+## 2026-03-09 — Actionable Cleanup + Collection Analysis
+
+### Part A — Actionable cleanup on /resources
+
+Extended the RAM Suspects page with actionable cleanup data surfaced as `CleanupItem` objects from each analyzer.
+
+**New files:**
+
+| File | Purpose |
+|------|---------|
+| `lib/analyzers/ram/cleanupOpportunities.ts` | Aggregates `CleanupItem[]` from all analyzer results; sorts by bytes |
+| `lib/link-builders/atomichub.ts` | AtomicHub URL builder (profile, listings, buy offers, sale, collection, template) |
+| `lib/link-builders/nefty.ts` | NeftyBlocks URL builder (profile, market, collection, templates) |
+| `lib/link-builders/index.ts` | Exports `buildListingLinks`, `buildBuyOfferLinks`, `buildP2POfferLinks`, `buildProfileLinks`, `buildCollectionLinks`, `buildSaleLink` |
+
+**Modified files:**
+
+| File | Change |
+|------|--------|
+| `lib/analyzers/types.ts` | Added `ActionLink`, `CleanupItem` interfaces; `AnalyzerResult.cleanupItems?` field |
+| `lib/analyzers/ram/atomicMarket.ts` | Returns `CleanupItem[]` per sales/auctions/buyoffers/balance |
+| `lib/analyzers/ram/atomicAssets.ts` | Returns `CleanupItem[]` for sent P2P offers |
+| `app/resources/page.tsx` | Added `CleanupCard` component; "Cleanup Opportunities" section with summary bar and sorted item list; per-analyzer cleanup cards inside each `AnalyzerSection` |
+
+**Key design decisions:**
+- `reclaimable: 'yes' | 'no' | 'maybe'` — explicit tristate; 'no' items shown as collapsed "permanent RAM obligations"
+- `payer: 'me' | 'contract' | 'other' | 'unknown'` — RAM payer attribution
+- `ActionLink.kind: 'external' | 'primary' | 'copy'` — typed link rendering
+- Cleanup Opportunities section sorted by `estimatedBytes` descending for highest impact first
+
+### Part B — Collection analysis page (/collection/[name])
+
+A new page for NFT collection authors and authorized accounts to understand their RAM obligations.
+
+**New files:**
+
+| File | Purpose |
+|------|---------|
+| `lib/analyzers/collection/ownership.ts` | Fetches collection metadata, determines role (author/authorized/notify) |
+| `lib/analyzers/collection/templates.ts` | Analyzes schema + template RAM (permanent obligations) |
+| `lib/analyzers/collection/mintedAssets.ts` | Analyzes minted asset RAM (reclaimable only by asset owner burning) |
+| `lib/analyzers/collection/index.ts` | Re-exports all collection analyzers |
+| `app/api/chain/collection/route.ts` | API route: fetches from AtomicAssets, runs all 3 analyzers, 60s TTL |
+| `app/collection/[name]/page.tsx` | Collection analysis page with role badges, stat cards, RAM summary, analyzer sections |
+
+**RAM semantics:**
+- Schemas and templates: `reclaimable: 'no'` — permanently held by AtomicAssets contract
+- Minted assets: `reclaimable: 'maybe'` — only when current owner calls `burnasset`
+- Collection auth/notify entries: `reclaimable: 'no'`, `payer: 'other'` (contract holds the RAM)
+
+---
+
 ## 2026-03-09 — WAX Resource Inspector
 
 **Route:** `/resources`
