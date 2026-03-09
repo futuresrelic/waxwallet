@@ -4,6 +4,45 @@ Records of significant features and fixes made by AI agents.
 
 ---
 
+## 2026-03-09 — Collection page correctness fix (real endpoint data)
+
+### Problem
+
+The collection page showed `Schemas: 0` and `Assets: 0` for real collections like `futuresrelic` because:
+1. Asset count was from `assets?...&limit=1000&page=1` — heavy list-fetch that times out or returns an incorrect page-count for large collections (1.8M assets)
+2. Template count was capped at 1000 with no total
+3. Schema stats were not fetched — no template/asset counts per schema
+4. `new Date("1600000000000")` returns "Invalid Date" — timestamp is milliseconds-as-string
+
+### Endpoints now used
+
+| Metric | Endpoint | Precision |
+|--------|----------|-----------|
+| Collection record | `/atomicassets/v1/collections/{name}` | Exact |
+| Asset count | `/atomicassets/v1/collections/{name}/stats` | **Exact** — returns `{ assets, burned_assets }` |
+| Schema list | `/atomicassets/v1/schemas?collection_name={name}&limit=100` | Exact (most collections < 100 schemas) |
+| Template count per schema | `/atomicassets/v1/schemas/{name}/{schema}/stats` (parallel) | **Exact** — summed for total |
+| Asset count per schema | Same `/schemas/{name}/{schema}/stats` | Exact |
+
+**Removed:** `assets?collection_name=...&limit=1000&page=1` — was the wrong tool for counts and timed out on large collections.
+
+### Page changes
+
+- `Metric` component: shows `Unavailable` (not `0`) when a fetch fails
+- Schemas table: shows each schema/category with template count and asset count from stats
+- Authorized/notify accounts: separate cards, current account highlighted
+- Debug panel: collapsible "Debug data sources" shows every URL fetched, success/failure, and result summary
+- Date fix: `new Date(Number(created_at_time))` instead of `new Date(string)` → no more "Invalid Date"
+- `name=undefined` guard: API route returns 400 if `name` param is missing or literally `"undefined"`
+
+### API route changes (`app/api/chain/collection/route.ts`)
+
+- Cache key bumped to `chain:collection:v2` (avoids stale v1 cache)
+- `DebugSource[]` tracked per request, returned in payload
+- All fetches are non-blocking failures: missing stats = `null`, displayed as "Unavailable"
+
+---
+
 ## 2026-03-09 — Resource Control Panel + Collection Inspector
 
 ### Summary

@@ -1,52 +1,81 @@
 'use client';
 // ─── Collection Resource Analysis Page ────────────────────────────────────────
-// Shows schema/template/minted-asset RAM obligations for a WAX collection,
-// from the perspective of an authorized account or collection author.
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useParams } from 'next/navigation';
 import {
-  AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp,
-  Database, Info, Layers, Loader2, RefreshCw, Shield,
-  ExternalLink, ArrowLeft,
+  AlertCircle, CheckCircle2, ChevronDown, ChevronUp,
+  Database, Info, Layers, Loader2, RefreshCw,
+  ExternalLink, ArrowLeft, Bug,
 } from 'lucide-react';
 import { useWalletStore } from '@/lib/store';
 import type { AnalyzerResult, AnalyzerSeverity, CleanupItem } from '@/lib/analyzers/types';
 import type { AccountRole, CollectionMeta } from '@/lib/analyzers/collection';
+import type { SchemaWithStats } from '@/app/api/chain/collection/route';
 import { formatBytes } from '@/lib/analyzers/accountResources';
 
-// ── Types for the API response ────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface DebugSource {
+  url: string;
+  status: 'ok' | 'failed';
+  result: string;
+}
 
 interface CollectionData {
   collection: CollectionMeta;
+  stats: { assets: number | null; burned_assets: number | null };
+  schemas: SchemaWithStats[];
+  schemaCount: number | null;
+  templateCount: number | null;
+  assetCount: number | null;
   account: string | null;
   role: AccountRole;
-  schemaCount: number;
-  templateCount: number;
-  assetCount: number;
-  mintedCount: number | null;
   analyzers: AnalyzerResult[];
+  sources: DebugSource[];
   endpoint: string;
 }
 
-// ── Severity helpers ──────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Show a number or a fallback string — never fake zeroes. */
+function Metric({
+  value, label, source, suffix = '',
+}: {
+  value: number | null | undefined;
+  label: string;
+  source?: string;
+  suffix?: string;
+}) {
+  return (
+    <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800">
+      <p className="text-[10px] text-zinc-500 uppercase tracking-wider">{label}</p>
+      {value != null ? (
+        <p className="text-2xl font-bold font-mono text-white mt-0.5">
+          {value.toLocaleString()}{suffix}
+        </p>
+      ) : (
+        <p className="text-sm text-zinc-600 mt-1 italic">Unavailable</p>
+      )}
+      {source && <p className="text-[10px] text-zinc-700 mt-0.5">{source}</p>}
+    </div>
+  );
+}
 
 const SEV_ICON: Record<AnalyzerSeverity, React.ReactNode> = {
   ok:       <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />,
   info:     <Info          className="w-4 h-4 text-blue-400  shrink-0" />,
-  warning:  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />,
-  critical: <AlertCircle   className="w-4 h-4 text-red-400   shrink-0" />,
+  warning:  <AlertCircle  className="w-4 h-4 text-amber-400 shrink-0" />,
+  critical: <AlertCircle  className="w-4 h-4 text-red-400   shrink-0" />,
 };
 
 const SEV_BORDER: Record<AnalyzerSeverity, string> = {
-  ok:       'border-green-500/20 bg-green-500/5',
-  info:     'border-blue-500/20  bg-blue-500/5',
-  warning:  'border-amber-500/20 bg-amber-500/5',
-  critical: 'border-red-500/30   bg-red-500/5',
+  ok:       'border-green-500/20',
+  info:     'border-blue-500/20',
+  warning:  'border-amber-500/20',
+  critical: 'border-red-500/30',
 };
-
-// ── Sub-components ────────────────────────────────────────────────────────────
 
 function RoleBadge({ label, active }: { label: string; active: boolean }) {
   return (
@@ -64,41 +93,31 @@ function CleanupCard({ item }: { item: CleanupItem }) {
   const reclaimColor =
     item.reclaimable === 'yes'   ? 'text-green-400'  :
     item.reclaimable === 'maybe' ? 'text-amber-400'  : 'text-zinc-500';
-
   return (
     <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-white">{item.title}</p>
-          {item.payerNote && (
-            <p className="text-xs text-zinc-500 mt-0.5">{item.payerNote}</p>
-          )}
+          {item.payerNote && <p className="text-xs text-zinc-500 mt-0.5">{item.payerNote}</p>}
         </div>
         <div className="text-right shrink-0">
           <p className="text-xs font-mono text-zinc-400">{formatBytes(item.estimatedBytes)}</p>
           <p className={`text-xs font-semibold ${reclaimColor}`}>
             {item.reclaimable === 'yes' ? '✓ reclaimable' :
-             item.reclaimable === 'maybe' ? '~ maybe' : '✗ permanent'}
+             item.reclaimable === 'maybe' ? '~ possibly' : '✗ permanent'}
           </p>
         </div>
       </div>
-
       {item.howToReclaim && (
         <p className="text-xs text-zinc-400 leading-relaxed border-l-2 border-zinc-700 pl-3">
           {item.howToReclaim}
         </p>
       )}
-
       {item.actionLinks.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {item.actionLinks.map((link, i) => (
-            <a
-              key={i}
-              href={link.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
-            >
+            <a key={i} href={link.href} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors">
               <ExternalLink className="w-3 h-3" />
               {link.label}
             </a>
@@ -111,9 +130,8 @@ function CleanupCard({ item }: { item: CleanupItem }) {
 
 function AnalyzerSection({ result }: { result: AnalyzerResult }) {
   const [open, setOpen] = useState(true);
-
   return (
-    <div className={`rounded-xl border overflow-hidden ${SEV_BORDER[result.severity]}`}>
+    <div className={`rounded-xl border overflow-hidden ${SEV_BORDER[result.severity]} bg-zinc-900/40`}>
       <button
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left"
@@ -128,13 +146,9 @@ function AnalyzerSection({ result }: { result: AnalyzerResult }) {
         <span className="text-[10px] text-zinc-600 uppercase tracking-wider">{result.confidence}</span>
         {open ? <ChevronUp className="w-4 h-4 text-zinc-600" /> : <ChevronDown className="w-4 h-4 text-zinc-600" />}
       </button>
-
       {open && (
         <div className="border-t border-white/5">
-          {result.error && (
-            <p className="px-4 py-2 text-xs text-red-400">{result.error}</p>
-          )}
-
+          {result.error && <p className="px-4 py-2 text-xs text-red-400">{result.error}</p>}
           {result.rows.length > 0 && (
             <div className="divide-y divide-white/5">
               {result.rows.map((row, i) => (
@@ -142,12 +156,9 @@ function AnalyzerSection({ result }: { result: AnalyzerResult }) {
                   <span className="text-xs text-zinc-400 w-56 shrink-0 leading-relaxed">{row.label}</span>
                   <span className={`text-xs font-mono font-semibold shrink-0 ${
                     row.value === 'error' ? 'text-red-400' :
-                    row.value === 'unavailable' || row.value === 'inferred' ? 'text-zinc-600' :
                     typeof row.value === 'number' && row.value > 0 ? 'text-amber-300' :
                     'text-white'
-                  }`}>
-                    {String(row.value)}
-                  </span>
+                  }`}>{String(row.value)}</span>
                   {row.detail && (
                     <span className="text-xs text-zinc-600 text-right flex-1 leading-relaxed">{row.detail}</span>
                   )}
@@ -155,22 +166,110 @@ function AnalyzerSection({ result }: { result: AnalyzerResult }) {
               ))}
             </div>
           )}
-
           {result.notes && (
             <p className="px-4 py-2 border-t border-white/5 text-xs text-zinc-500 italic">{result.notes}</p>
           )}
-
           {result.cleanupItems && result.cleanupItems.length > 0 && (
             <div className="p-4 border-t border-white/5 flex flex-col gap-3">
               <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">RAM Breakdown</p>
-              {result.cleanupItems.map(item => (
-                <CleanupCard key={item.id} item={item} />
-              ))}
+              {result.cleanupItems.map(item => <CleanupCard key={item.id} item={item} />)}
             </div>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+// ── Schemas table ─────────────────────────────────────────────────────────────
+
+function SchemasTable({ schemas }: { schemas: SchemaWithStats[] }) {
+  const [open, setOpen] = useState(true);
+  if (schemas.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-zinc-800 overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-zinc-900 hover:bg-zinc-800/60 transition-colors"
+      >
+        <p className="text-sm font-semibold text-white">
+          Categories / Schemas
+          <span className="ml-2 text-xs text-zinc-500 font-normal">({schemas.length})</span>
+        </p>
+        {open ? <ChevronUp className="w-4 h-4 text-zinc-600" /> : <ChevronDown className="w-4 h-4 text-zinc-600" />}
+      </button>
+      {open && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-zinc-800 bg-zinc-900/60">
+                <th className="text-left px-4 py-2 text-zinc-500 font-semibold uppercase tracking-wider">Schema / Category</th>
+                <th className="text-right px-4 py-2 text-zinc-500 font-semibold uppercase tracking-wider">Attributes</th>
+                <th className="text-right px-4 py-2 text-zinc-500 font-semibold uppercase tracking-wider">Templates</th>
+                <th className="text-right px-4 py-2 text-zinc-500 font-semibold uppercase tracking-wider">Assets</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800/60">
+              {schemas.map(s => (
+                <tr key={s.schema_name} className="hover:bg-zinc-800/30 transition-colors">
+                  <td className="px-4 py-2 font-mono text-zinc-300">{s.schema_name}</td>
+                  <td className="px-4 py-2 text-right text-zinc-400">{s.format?.length ?? 0}</td>
+                  <td className="px-4 py-2 text-right text-zinc-300 font-mono">
+                    {s.templateCount != null ? s.templateCount.toLocaleString() : <span className="text-zinc-600 italic">—</span>}
+                  </td>
+                  <td className="px-4 py-2 text-right text-zinc-300 font-mono">
+                    {s.assetCount != null ? s.assetCount.toLocaleString() : <span className="text-zinc-600 italic">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="px-4 py-2 text-[10px] text-zinc-700 border-t border-zinc-800">
+            Source: /atomicassets/v1/schemas/{'{collection}'}/{'{schema}'}/stats — exact counts
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Debug panel ───────────────────────────────────────────────────────────────
+
+function DebugPanel({ sources, endpoint }: { sources: DebugSource[]; endpoint: string }) {
+  const [open, setOpen] = useState(false);
+  const failed = sources.filter(s => s.status === 'failed');
+  return (
+    <details open={open} onToggle={e => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary className="flex items-center gap-1.5 text-xs text-zinc-600 cursor-pointer hover:text-zinc-400 transition-colors select-none py-1">
+        <Bug className="w-3.5 h-3.5" />
+        Debug data sources
+        {failed.length > 0 && (
+          <span className="ml-1 px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[10px] font-semibold">
+            {failed.length} failed
+          </span>
+        )}
+      </summary>
+      <div className="mt-2 rounded-xl border border-zinc-800 overflow-hidden text-xs">
+        <div className="px-3 py-2 bg-zinc-900/60 border-b border-zinc-800 flex items-center justify-between">
+          <span className="text-zinc-500">Endpoint: <span className="font-mono text-zinc-400">{endpoint}</span></span>
+          <span className="text-zinc-600">{sources.length} requests</span>
+        </div>
+        <div className="divide-y divide-zinc-800/40 max-h-80 overflow-y-auto">
+          {sources.map((s, i) => (
+            <div key={i} className="flex items-start gap-3 px-3 py-2">
+              <span className={`shrink-0 font-semibold ${s.status === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
+                {s.status === 'ok' ? '✓' : '✗'}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-mono text-zinc-400 break-all leading-relaxed">{s.url}</p>
+                <p className={`mt-0.5 ${s.status === 'ok' ? 'text-zinc-600' : 'text-red-400/70'}`}>{s.result}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -183,21 +282,19 @@ export default function CollectionResourcesPage() {
   const { connectedAccount } = useWalletStore();
 
   const [accountInput, setAccountInput] = useState('');
-  const [data, setData]     = useState<CollectionData | null>(null);
+  const [data, setData]       = useState<CollectionData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError]   = useState<string | null>(null);
+  const [error, setError]     = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
-  // pre-fill account from query param or connected wallet
   useEffect(() => {
     const qAccount = searchParams.get('account');
     setAccountInput(qAccount ?? connectedAccount ?? '');
   }, [connectedAccount, searchParams]);
 
   const analyze = useCallback(async (acc: string, refresh = false) => {
-    setLoading(true);
-    setError(null);
-    setLastRefresh(new Date());
+    if (!collectionName) return;
+    setLoading(true); setError(null); setLastRefresh(new Date());
     try {
       const qs = `?name=${encodeURIComponent(collectionName)}&account=${encodeURIComponent(acc)}${refresh ? '&refresh=true' : ''}`;
       const res = await fetch(`/api/chain/collection${qs}`);
@@ -211,40 +308,42 @@ export default function CollectionResourcesPage() {
     }
   }, [collectionName]);
 
-  // auto-load on mount
   useEffect(() => {
     const acc = searchParams.get('account') ?? connectedAccount ?? '';
     analyze(acc);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionName]);
 
-  // ── Derived ──────────────────────────────────────────────────────────────
+  // ── Derived ────────────────────────────────────────────────────────────────
   const allCleanupItems = data?.analyzers.flatMap(r => r.cleanupItems ?? []) ?? [];
-  const reclaimable = allCleanupItems.filter(c => c.reclaimable !== 'no');
-  const permanent   = allCleanupItems.filter(c => c.reclaimable === 'no');
-  const totalRecBytes = reclaimable.reduce((s, c) => s + c.estimatedBytes, 0);
+  const reclaimable  = allCleanupItems.filter(c => c.reclaimable !== 'no');
+  const permanent    = allCleanupItems.filter(c => c.reclaimable === 'no');
+  const totalRecBytes  = reclaimable.reduce((s, c) => s + c.estimatedBytes, 0);
   const totalPermBytes = permanent.reduce((s, c) => s + c.estimatedBytes, 0);
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  const createdAt = data
+    ? new Date(Number(data.collection.created_at_time))
+    : null;
+  const createdDisplay = createdAt && !isNaN(createdAt.getTime())
+    ? createdAt.toLocaleDateString()
+    : 'Unavailable';
+
   return (
     <div className="max-w-4xl mx-auto flex flex-col gap-8 py-4">
 
       {/* Header */}
       <div>
-        <Link
-          href="/resources"
-          className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 mb-3 transition-colors"
-        >
+        <Link href="/collections"
+          className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 mb-3 transition-colors">
           <ArrowLeft className="w-3 h-3" />
-          Back to Resource Inspector
+          Back to Collection Inspector
         </Link>
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           <Layers className="w-6 h-6 text-amber-400" />
           Collection Analysis
         </h1>
         <p className="text-zinc-400 text-sm mt-1">
-          RAM obligations for collection{' '}
-          <span className="font-mono text-amber-400">{collectionName}</span>
+          RAM obligations for <span className="font-mono text-amber-400">{collectionName}</span>
           {' '}— from a creator / authorized account perspective.
         </p>
       </div>
@@ -254,7 +353,7 @@ export default function CollectionResourcesPage() {
         <input
           value={accountInput}
           onChange={e => setAccountInput(e.target.value.trim().toLowerCase())}
-          placeholder="WAX account to check authorization (e.g. alice.wam)"
+          placeholder="WAX account to check roles (optional — leave blank for collection overview)"
           className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-amber-500"
         />
         <button
@@ -263,19 +362,17 @@ export default function CollectionResourcesPage() {
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-semibold transition-colors disabled:opacity-60"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          {loading ? 'Analyzing…' : 'Analyze'}
+          {loading ? 'Loading…' : 'Analyze'}
         </button>
       </div>
 
-      {/* Loading */}
       {loading && !data && (
         <div className="flex items-center gap-3 py-12 text-zinc-500">
           <Loader2 className="w-5 h-5 animate-spin" />
-          Loading collection data…
+          Fetching collection data…
         </div>
       )}
 
-      {/* Error */}
       {error && (
         <div className="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/30">
           <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
@@ -294,86 +391,124 @@ export default function CollectionResourcesPage() {
                   ? data.collection.img
                   : `https://ipfs.io/ipfs/${data.collection.img}`}
                 alt={data.collection.name}
-                className="w-16 h-16 rounded-lg object-cover bg-zinc-800"
+                className="w-16 h-16 rounded-lg object-cover bg-zinc-800 shrink-0"
                 onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
               />
             )}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-lg font-bold text-white">{data.collection.name}</h2>
+                <h2 className="text-lg font-bold text-white">{data.collection.name || data.collection.collection_name}</h2>
                 <span className="text-xs font-mono text-zinc-500">{data.collection.collection_name}</span>
               </div>
-              <p className="text-xs text-zinc-500 mt-1">Author: <span className="font-mono text-zinc-300">{data.collection.author}</span></p>
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-zinc-500">
+                <span>Author: <span className="font-mono text-zinc-300">{data.collection.author}</span></span>
+                <span>Market fee: <span className="text-zinc-300">{(data.collection.market_fee * 100).toFixed(2)}%</span></span>
+                <span>Created: <span className="text-zinc-300">{createdDisplay}</span></span>
+              </div>
               {lastRefresh && (
-                <p className="text-xs text-zinc-600 mt-0.5">Refreshed {lastRefresh.toLocaleTimeString()}</p>
+                <p className="text-[11px] text-zinc-700 mt-1">Refreshed {lastRefresh.toLocaleTimeString()} · {data.endpoint}</p>
               )}
             </div>
-            <div className="flex flex-col gap-1.5">
-              {data.role && (
-                <div className="flex flex-wrap gap-1.5 justify-end">
-                  <RoleBadge label="Author"     active={data.role.isAuthor} />
-                  <RoleBadge label="Authorized" active={data.role.isAuthorized} />
-                  <RoleBadge label="Notify"     active={data.role.isNotify} />
-                </div>
-              )}
-            </div>
+            {data.role && (
+              <div className="flex flex-wrap gap-1.5 justify-end shrink-0">
+                <RoleBadge label="Author"     active={data.role.isAuthor} />
+                <RoleBadge label="Authorized" active={data.role.isAuthorized} />
+                <RoleBadge label="Notify"     active={data.role.isNotify} />
+              </div>
+            )}
           </div>
+
+          {/* Authorized / notify accounts */}
+          {(data.collection.authorized_accounts.length > 0 || data.collection.notify_accounts.length > 0) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800">
+                <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">
+                  Authorized Accounts ({data.collection.authorized_accounts.length})
+                </p>
+                {data.collection.authorized_accounts.length > 0
+                  ? data.collection.authorized_accounts.map(a => (
+                    <p key={a} className={`text-xs font-mono ${a === data.account ? 'text-amber-400 font-semibold' : 'text-zinc-300'}`}>{a}</p>
+                  ))
+                  : <p className="text-xs text-zinc-600 italic">None</p>
+                }
+              </div>
+              <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800">
+                <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">
+                  Notify Accounts ({data.collection.notify_accounts.length})
+                </p>
+                {data.collection.notify_accounts.length > 0
+                  ? data.collection.notify_accounts.map(a => (
+                    <p key={a} className={`text-xs font-mono ${a === data.account ? 'text-amber-400 font-semibold' : 'text-zinc-300'}`}>{a}</p>
+                  ))
+                  : <p className="text-xs text-zinc-600 italic">None</p>
+                }
+              </div>
+            </div>
+          )}
 
           {/* Quick stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: 'Schemas',   value: data.schemaCount },
-              { label: 'Templates', value: `${data.templateCount}${data.templateCount >= 1000 ? '+' : ''}` },
-              { label: 'Assets (sample)', value: `${data.assetCount}${data.assetCount >= 1000 ? '+' : ''}` },
-              { label: 'Minted by you', value: data.mintedCount !== null ? `${data.mintedCount}${data.mintedCount >= 1000 ? '+' : ''}` : 'N/A' },
-            ].map(s => (
-              <div key={s.label} className="p-3 rounded-xl bg-zinc-900 border border-zinc-800">
-                <p className="text-[10px] text-zinc-500 uppercase tracking-wider">{s.label}</p>
-                <p className="text-2xl font-bold font-mono text-white mt-0.5">{s.value}</p>
-              </div>
-            ))}
+            <Metric
+              value={data.schemaCount}
+              label="Schemas / Categories"
+              source="schemas endpoint"
+            />
+            <Metric
+              value={data.templateCount}
+              label="Templates (total)"
+              source="schema stats — exact"
+            />
+            <Metric
+              value={data.assetCount}
+              label="Live Assets"
+              source="collection stats — exact"
+            />
+            <Metric
+              value={data.stats.burned_assets}
+              label="Burned Assets"
+              source="collection stats — exact"
+            />
           </div>
 
-          {/* RAM summary */}
+          {/* Schemas / Categories table */}
+          {data.schemas.length > 0 && (
+            <SchemasTable schemas={data.schemas} />
+          )}
+          {data.schemas.length === 0 && data.schemaCount === null && (
+            <div className="p-4 rounded-xl bg-zinc-900 border border-amber-500/20 text-sm text-amber-400 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              Schema list unavailable — the schemas endpoint did not return data. Check the debug panel below.
+            </div>
+          )}
+
+          {/* RAM obligations summary */}
           {allCleanupItems.length > 0 && (
             <div>
               <h2 className="text-base font-semibold text-white mb-3 flex items-center gap-2">
                 <Database className="w-4 h-4 text-amber-400" />
                 RAM Obligations Summary
               </h2>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                 <div className="p-4 rounded-xl bg-zinc-900 border border-amber-500/20">
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Permanent RAM (cannot reclaim)</p>
-                  <p className="text-2xl font-bold font-mono text-amber-400 mt-1">
-                    {formatBytes(totalPermBytes)}
-                  </p>
-                  <p className="text-xs text-zinc-500 mt-0.5">
-                    Schemas + templates — permanent in AtomicAssets
-                  </p>
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Permanent RAM</p>
+                  <p className="text-2xl font-bold font-mono text-amber-400 mt-1">{formatBytes(totalPermBytes)}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">Schemas + templates — cannot be reclaimed</p>
                 </div>
                 <div className="p-4 rounded-xl bg-zinc-900 border border-green-500/20">
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Potentially reclaimable</p>
-                  <p className="text-2xl font-bold font-mono text-green-400 mt-1">
-                    {formatBytes(totalRecBytes)}
-                  </p>
-                  <p className="text-xs text-zinc-500 mt-0.5">
-                    Minted assets (if owners burn them)
-                  </p>
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Possibly reclaimable</p>
+                  <p className="text-2xl font-bold font-mono text-green-400 mt-1">{formatBytes(totalRecBytes)}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">Asset RAM — only when current owners burn</p>
                 </div>
               </div>
-
-              {/* Context note */}
               <div className="flex items-start gap-3 p-4 rounded-xl bg-zinc-900 border border-blue-500/20">
                 <Info className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
                 <div className="text-xs text-zinc-400 leading-relaxed">
                   <p className="font-semibold text-zinc-300 mb-1">Understanding collection RAM</p>
                   <ul className="space-y-1 list-disc list-inside">
-                    <li>Schema rows are <strong>permanent</strong> — no delete in AtomicAssets.</li>
-                    <li>Template rows are <strong>permanent</strong> — burning all assets frees asset rows but not the template row.</li>
-                    <li>Asset rows are freed when the <strong>current owner burns</strong> the asset.</li>
-                    <li>You cannot force reclamation on assets you no longer own.</li>
-                    <li>The RAM payer is determined at creation time, not by current ownership.</li>
+                    <li>Schema and template rows are <strong>permanent</strong> — AtomicAssets has no delete operation for these.</li>
+                    <li>Asset RAM is freed when the <strong>current owner burns</strong> the asset — you cannot force this.</li>
+                    <li>The RAM payer is set at creation time, not by current ownership.</li>
+                    <li>Burning all assets of a template frees asset row RAM but <em>not</em> the template row itself.</li>
                   </ul>
                 </div>
               </div>
@@ -382,10 +517,7 @@ export default function CollectionResourcesPage() {
 
           {/* Detailed analyzers */}
           <div>
-            <h2 className="text-base font-semibold text-white mb-3 flex items-center gap-2">
-              <Shield className="w-4 h-4 text-amber-400" />
-              Detailed Analysis
-            </h2>
+            <h2 className="text-base font-semibold text-white mb-3">Detailed Analysis</h2>
             <div className="flex flex-col gap-3">
               {data.analyzers.map(result => (
                 <AnalyzerSection key={result.id} result={result} />
@@ -393,10 +525,8 @@ export default function CollectionResourcesPage() {
             </div>
           </div>
 
-          {/* Data source note */}
-          <p className="text-xs text-zinc-600">
-            Data from {data.endpoint} · {lastRefresh?.toLocaleTimeString()}
-          </p>
+          {/* Debug panel */}
+          <DebugPanel sources={data.sources} endpoint={data.endpoint} />
         </>
       )}
     </div>

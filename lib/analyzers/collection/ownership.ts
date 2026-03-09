@@ -36,7 +36,7 @@ export function analyzeOwnership(
     { label: 'Author',                value: collection.author,
       detail: role.isAuthor ? '← this account' : undefined },
     { label: 'Market fee',            value: `${(collection.market_fee * 100).toFixed(2)}%` },
-    { label: 'Created',               value: new Date(collection.created_at_time).toLocaleDateString() },
+    { label: 'Created',               value: new Date(Number(collection.created_at_time)).toLocaleDateString() },
     { label: 'Authorized accounts',   value: collection.authorized_accounts.join(', ') || '(none)',
       detail: role.isAuthorized ? '← this account is listed' : undefined },
     { label: 'Notify accounts',       value: collection.notify_accounts.join(', ') || '(none)',
