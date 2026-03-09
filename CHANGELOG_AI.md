@@ -4,6 +4,39 @@ Records of significant features and fixes made by AI agents.
 
 ---
 
+## 2026-03-09 — Resource Control Panel + Collection Inspector
+
+### Summary
+
+Major UX upgrade: /resources now reads as a practical control panel for non-technical users. Added plain-language summary, ranked RAM consumer list, CPU pressure breakdown, and split reclaimable/permanent cleanup items. New /collections search page and Collections navbar link.
+
+### Changes to /resources
+
+| Change | Details |
+|--------|---------|
+| **"What you can do right now"** | Plain-English bullet summary at top: CPU health, RAM health, top reclaimable item, pending refund |
+| **"Where Your RAM Is Going"** | Ranked list split into Reclaimable Now / Possibly Reclaimable / Usually Permanent |
+| **"Recent CPU Pressure"** | Groups recent actions by type with count, avg CPU, total CPU, and interpretation text |
+| **Confidence labels** | "Confirmed" / "Likely" / "Estimated" with hover tooltips explaining precision |
+| **Copy IDs button** | CleanupCard shows "Copy IDs" for action links with `kind: 'copy'` |
+| **Collection CTA** | Header button + bottom card link to /collections |
+
+### New: /collections search page
+
+- Collection name input → navigates to `/collection/[name]`
+- Recently-inspected list (localStorage, up to 5)
+- Pre-fills account from connected wallet
+
+### New: `buildCpuPressureSummary()` in `lib/analyzers/recentActions.ts`
+
+Groups Hyperion actions by category and returns per-group CPU stats and interpretation text.
+
+### Navbar
+
+Added **Collections** link (Layers icon), active on `/collection*` paths.
+
+---
+
 ## 2026-03-09 — Actionable Cleanup + Collection Analysis
 
 ### Part A — Actionable cleanup on /resources

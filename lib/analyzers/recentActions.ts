@@ -27,7 +27,7 @@ const ACTION_LABELS: Record<string, string> = {
   'atomicmarket:cancelauction':  'Cancel Auction',
   'atomicmarket:bidauction':     'Bid on Auction',
   'atomicmarket:payofferram':    'Pay Offer RAM',
-  'eosio:powerup':               '⚡ PowerUp',
+  'eosio:powerup':               'PowerUp',
   'eosio:delegatebw':            'Delegate Bandwidth',
   'eosio:undelegatebw':          'Undelegate Bandwidth',
   'eosio:buyrambytes':           'Buy RAM',
@@ -42,6 +42,108 @@ function labelAction(account: string, name: string): string {
 function isHeavy(name: string): boolean {
   return HEAVY_ACTIONS.has(name);
 }
+
+// ── CPU Pressure Summary ───────────────────────────────────────────────────────
+
+export type ActionCategory =
+  | 'NFT Transfers'
+  | 'NFT Mints'
+  | 'NFT Burns'
+  | 'Marketplace'
+  | 'P2P Offers'
+  | 'PowerUps'
+  | 'WAX Transfers'
+  | 'Resource Ops'
+  | 'Other';
+
+function categorize(account: string, name: string): ActionCategory {
+  if (account === 'atomicassets') {
+    if (name === 'transfer')                   return 'NFT Transfers';
+    if (name === 'logmint' || name === 'mintasset') return 'NFT Mints';
+    if (name === 'logburnasset' || name === 'burnasset') return 'NFT Burns';
+    if (name === 'createoffer' || name === 'canceloffer' || name === 'claimoffer') return 'P2P Offers';
+  }
+  if (account === 'atomicmarket') return 'Marketplace';
+  if (account === 'eosio' && name === 'powerup') return 'PowerUps';
+  if (account === 'eosio') return 'Resource Ops';
+  if (account === 'eosio.token' && name === 'transfer') return 'WAX Transfers';
+  return 'Other';
+}
+
+export interface CpuActionGroup {
+  category: ActionCategory;
+  count: number;
+  totalCpuUs: number;
+  avgCpuUs: number | null;
+  missingCpuCount: number;
+  interpretation: string;
+}
+
+export interface CpuPressureSummary {
+  groups: CpuActionGroup[];
+  totalVisibleUs: number;
+  mainDriver: ActionCategory | null;
+  hasMissingData: boolean;
+  actionCount: number;
+}
+
+export function buildCpuPressureSummary(actions: HyperionAction[]): CpuPressureSummary {
+  const buckets = new Map<ActionCategory, { cpu: number[]; missing: number; total: number }>();
+
+  for (const a of actions) {
+    const cat = categorize(a.act.account, a.act.name);
+    if (!buckets.has(cat)) buckets.set(cat, { cpu: [], missing: 0, total: 0 });
+    const b = buckets.get(cat)!;
+    b.total++;
+    if (a.cpu_usage_us != null) b.cpu.push(a.cpu_usage_us);
+    else b.missing++;
+  }
+
+  const groups: CpuActionGroup[] = [];
+
+  for (const [category, { cpu, missing, total }] of buckets) {
+    const totalCpuUs = cpu.reduce((s, v) => s + v, 0);
+    const avgCpuUs   = cpu.length > 0 ? Math.round(totalCpuUs / cpu.length) : null;
+
+    let interpretation = '';
+    if (category === 'NFT Transfers') {
+      interpretation = avgCpuUs != null
+        ? `Each transfer averaged ${formatUs(avgCpuUs)} CPU — this is your main CPU consumer.`
+        : 'NFT transfers are common CPU consumers — cost data is incomplete for this window.';
+    } else if (category === 'PowerUps') {
+      interpretation = total >= 5
+        ? `${total} PowerUps in history — consider staking WAX for CPU to avoid repeated costs.`
+        : `${total} PowerUp(s) — one-off resource top-ups.`;
+    } else if (category === 'NFT Mints') {
+      interpretation = 'Minting actions can be CPU-intensive, especially for large batches.';
+    } else if (category === 'Marketplace') {
+      interpretation = 'Marketplace actions (list, buy, cancel) use moderate CPU.';
+    } else if (category === 'P2P Offers') {
+      interpretation = 'P2P offer actions (send/cancel/claim) use moderate CPU and each open offer occupies RAM.';
+    } else if (category === 'WAX Transfers') {
+      interpretation = 'WAX token transfers are lightweight CPU-wise.';
+    } else if (category === 'Resource Ops') {
+      interpretation = 'Staking, RAM purchases, and other resource operations.';
+    } else {
+      interpretation = missing > total / 2
+        ? 'CPU data is incomplete for these actions.'
+        : `${total} action(s) from other contracts.`;
+    }
+
+    groups.push({ category, count: total, totalCpuUs, avgCpuUs, missingCpuCount: missing, interpretation });
+  }
+
+  // Sort by total CPU descending (groups with missing data go below those with data)
+  groups.sort((a, b) => b.totalCpuUs - a.totalCpuUs || b.count - a.count);
+
+  const totalVisibleUs = groups.reduce((s, g) => s + g.totalCpuUs, 0);
+  const hasMissingData = groups.some(g => g.missingCpuCount > 0);
+  const mainDriver = groups[0]?.count > 0 ? groups[0].category : null;
+
+  return { groups, totalVisibleUs, mainDriver, hasMissingData, actionCount: actions.length };
+}
+
+// ── Recent Actions Analyzer ────────────────────────────────────────────────────
 
 export function analyzeRecentActions(actions: HyperionAction[]): AnalyzerResult {
   if (actions.length === 0) {
@@ -64,7 +166,7 @@ export function analyzeRecentActions(actions: HyperionAction[]): AnalyzerResult 
     const ts = new Date(a.timestamp).toLocaleString();
     const cpuStr = a.cpu_usage_us != null
       ? formatUs(a.cpu_usage_us)
-      : 'CPU N/A';
+      : 'no data';
     const netStr = a.net_usage_words != null
       ? `${(a.net_usage_words * 8).toLocaleString()} B NET`
       : '';
@@ -80,7 +182,7 @@ export function analyzeRecentActions(actions: HyperionAction[]): AnalyzerResult 
 
   return {
     id: 'recent_actions',
-    title: 'Recent Activity',
+    title: 'Recent Transactions',
     description: [
       `${actions.length} actions shown`,
       totalCpuUs > 0 ? `total visible CPU: ${formatUs(totalCpuUs)}` : null,
@@ -91,7 +193,7 @@ export function analyzeRecentActions(actions: HyperionAction[]): AnalyzerResult 
     confidence: 'confirmed',
     rows,
     notes: hasMissingCpu
-      ? 'Some actions are missing CPU data (older records or history node limitation).'
+      ? 'Some actions show "no data" for CPU — this is a history node limitation for older records, not missing transactions.'
       : undefined,
   };
 }
