@@ -20,10 +20,20 @@ export interface TemplateInfo {
 }
 
 // Rough RAM estimates based on AtomicAssets contract storage patterns
-const BYTES_PER_SCHEMA_BASE  = 500;
-const BYTES_PER_SCHEMA_ATTR  = 50;   // per format attribute
+const BYTES_PER_SCHEMA_BASE   = 500;
+const BYTES_PER_SCHEMA_ATTR   = 50;    // per format attribute
 const BYTES_PER_TEMPLATE_BASE = 600;
-const BYTES_PER_TEMPLATE_DATA = 512; // average for typical immutable data
+const BYTES_PER_TEMPLATE_DATA = 512;   // average for typical immutable data
+
+// Upper bounds — guards against corrupted/non-numeric API values corrupting estimates
+const MAX_SANE_TEMPLATE_COUNT = 10_000_000; // 10M is already extreme
+const MAX_SANE_SCHEMA_COUNT   = 100_000;
+
+/** Return n clamped to [0, max] as an integer; 0 if non-finite or negative. */
+function clamp(n: number, max: number): number {
+  if (!Number.isFinite(n) || isNaN(n) || n < 0) return 0;
+  return Math.min(Math.round(n), max);
+}
 
 export function analyzeSchemasAndTemplates(
   schemas: SchemaInfo[],
@@ -32,25 +42,31 @@ export function analyzeSchemasAndTemplates(
   templateCount: number,
   role: { isAuthor: boolean; isAuthorized: boolean },
 ): AnalyzerResult {
+  // Guard against string-concatenated or out-of-range counts from the API
+  const safeSchemaCount   = clamp(Number(schemaCount),   MAX_SANE_SCHEMA_COUNT);
+  const safeTemplateCount = clamp(Number(templateCount), MAX_SANE_TEMPLATE_COUNT);
+
   const schemaBytes = schemas.reduce(
     (s, sc) => s + BYTES_PER_SCHEMA_BASE + (sc.format?.length ?? 0) * BYTES_PER_SCHEMA_ATTR,
     0,
   );
-  const templateBytes = templateCount * (BYTES_PER_TEMPLATE_BASE + BYTES_PER_TEMPLATE_DATA);
+  const templateBytes = safeTemplateCount * (BYTES_PER_TEMPLATE_BASE + BYTES_PER_TEMPLATE_DATA);
 
   const rows: AnalyzerResult['rows'] = [
     {
-      label: 'Schemas',
-      value: schemaCount,
-      detail: schemaCount > 0
-        ? `~${(schemaBytes / 1024).toFixed(1)} KB estimated (schema rows are permanent)`
+      label: 'Schemas / Categories',
+      value: safeSchemaCount,
+      detail: safeSchemaCount > 0
+        ? `~${(schemaBytes / 1024).toFixed(1)} KB estimated — schema rows are permanent, cannot be deleted`
         : 'No schemas found',
     },
     {
-      label: 'Templates',
-      value: templateCount > 0 ? `${templateCount}${templateCount >= 1000 ? '+' : ''}` : 0,
-      detail: templateCount > 0
-        ? `~${(templateBytes / 1024).toFixed(1)} KB estimated (template rows are permanent)`
+      label: 'Templates (total)',
+      value: safeTemplateCount > 0
+        ? safeTemplateCount.toLocaleString()
+        : 0,
+      detail: safeTemplateCount > 0
+        ? `~${(templateBytes / 1024).toFixed(1)} KB estimated — template rows are permanent, cannot be deleted`
         : 'No templates found',
     },
   ];
@@ -69,32 +85,32 @@ export function analyzeSchemasAndTemplates(
 
   const cleanupItems: CleanupItem[] = [];
 
-  if ((role.isAuthor || role.isAuthorized) && (schemaCount > 0 || templateCount > 0)) {
-    if (schemaCount > 0) {
+  if ((role.isAuthor || role.isAuthorized) && (safeSchemaCount > 0 || safeTemplateCount > 0)) {
+    if (safeSchemaCount > 0) {
       cleanupItems.push({
         id: 'col_schemas',
-        title: `${schemaCount} schema${schemaCount > 1 ? 's' : ''} in collection`,
-        count: schemaCount,
+        title: `${safeSchemaCount.toLocaleString()} schema${safeSchemaCount > 1 ? 's' : ''} in collection`,
+        count: safeSchemaCount,
         estimatedBytes: schemaBytes,
         reclaimable: 'no',
         confidence: 'likely',
         payer: 'me',
-        howToReclaim: 'Schemas cannot be deleted in AtomicAssets. This RAM is permanently allocated for the lifetime of the collection.',
-        payerNote: 'The authorized account that called createschema is the RAM payer.',
+        howToReclaim: 'Schemas cannot be deleted in AtomicAssets. This RAM is permanently allocated for the lifetime of the collection. There is no reclaim path.',
+        payerNote: 'The authorized account that called createschema is the RAM payer for each schema row.',
         actionLinks: [],
       });
     }
 
-    if (templateCount > 0) {
+    if (safeTemplateCount > 0) {
       cleanupItems.push({
         id: 'col_templates',
-        title: `${templateCount}${templateCount >= 1000 ? '+' : ''} template${templateCount > 1 ? 's' : ''} in collection`,
-        count: templateCount,
+        title: `${safeTemplateCount.toLocaleString()} template${safeTemplateCount > 1 ? 's' : ''} in collection`,
+        count: safeTemplateCount,
         estimatedBytes: templateBytes,
         reclaimable: 'no',
         confidence: 'likely',
         payer: 'me',
-        howToReclaim: 'Templates cannot be deleted in AtomicAssets. RAM is permanent. The only partial relief is burning all minted assets of a template (frees asset rows, not the template row).',
+        howToReclaim: 'Templates cannot be deleted in AtomicAssets. RAM is permanently allocated. The only partial relief is burning all minted assets of a template — this frees the asset rows, NOT the template row itself.',
         payerNote: 'The authorized account that called createtempl is the RAM payer for each template row.',
         actionLinks: [],
       });
@@ -107,14 +123,14 @@ export function analyzeSchemasAndTemplates(
   return {
     id: 'col_schemas_templates',
     title: 'Schemas & Templates',
-    description: `${schemaCount} schema${schemaCount !== 1 ? 's' : ''}, ${templateCount}${templateCount >= 1000 ? '+' : ''} template${templateCount !== 1 ? 's' : ''} — RAM is permanent.`,
+    description: `${safeSchemaCount.toLocaleString()} schema${safeSchemaCount !== 1 ? 's' : ''}, ${safeTemplateCount.toLocaleString()} template${safeTemplateCount !== 1 ? 's' : ''} — RAM is permanent.`,
     severity,
     confidence: 'likely',
     rows,
     cleanupItems,
     notes: [
-      'AtomicAssets does not support deleting schemas or templates.',
-      totalBytes > 0 ? `Estimated ${(totalBytes / 1024).toFixed(1)} KB allocated permanently.` : null,
+      'AtomicAssets does not support deleting schemas or templates — this RAM cannot be reclaimed.',
+      totalBytes > 0 ? `Estimated ${(totalBytes / 1024).toFixed(1)} KB permanently allocated.` : null,
     ].filter(Boolean).join(' ') || undefined,
   };
 }

@@ -5,6 +5,72 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-03-10 — Link builder fixes, numeric parsing, wallet compare, collection links
+
+### 1 — Fixed AtomicHub/NeftyBlocks action links
+
+All wrong AtomicHub destinations corrected.
+
+| Context | Old URL | New URL |
+|---------|---------|---------|
+| P2P offers sent | `profile/{account}#trading` | `https://wax.atomichub.io/trading/trade-offers` |
+| Buy offers | `profile/{account}#buyoffers` | `https://wax.atomichub.io/trading/buy-offers` |
+| Sale listings | `profile/{account}#listings` | `profile/wax-mainnet/{account}?order=desc&sort=created&symbol=WAX#listings` |
+| Profile | `profile/{account}` | `profile/wax-mainnet/{account}` |
+
+Added:
+- `atomicHub.tradeOffersPage()` — direct to trade-offers section
+- `atomicHub.buyOffersPage()` — direct to buy-offers section
+- `atomicHub.tradingLinksPage()` — custodial links section
+- `atomicHub.collectionTemplates(name)` — collection templates tab
+- `buildCollectionExternalLinks(collection)` — for collection page use
+
+Files: `lib/link-builders/atomichub.ts`, `lib/link-builders/index.ts`
+
+### 2 — Fixed giant template count (string concatenation bug)
+
+AtomicAssets API returns ALL numeric fields as **strings** (`"templates": "247"`).
+The previous `reduce((s, n) => s + n, 0)` concatenated strings instead of adding.
+Result was absurd numbers like `0152061210424323318526216228691126520915992`.
+
+Fix: added `safeNum(v: unknown): number | null` in the collection route that does
+`Number(v)` with `isFinite` guard. Applied everywhere schema/collection stats are read.
+
+Also fixed in `templates.ts`: added `clamp()` guard with max 10M cap on template count
+before any multiplication (prevents scientific notation overflow in RAM estimates).
+
+Files: `app/api/chain/collection/route.ts`, `lib/analyzers/collection/templates.ts`
+
+### 3 — Added wallet comparison page (`/resources/compare`)
+
+New page at `app/resources/compare/page.tsx`:
+- Enter 2–3 WAX account names side by side
+- Fetches `/api/chain/account` + `/api/chain/ram` for each in parallel
+- Comparison table: CPU %, CPU available, NET %, RAM used/free/total, reclaimable RAM, permanent RAM, open P2P offers, open market rows, recommended batch size
+- "Wallet Differences Explained" cards — auto-detects which wallet is heavier and why
+- Amber highlight on highest value per row
+- "Full analysis →" links back to `/resources?account=X`
+- "Compare Wallets" button added to `/resources` section header
+
+### 4 — Collection page external links
+
+Collection analysis page now shows quick external links below the header card:
+- Collection on AtomicHub
+- Templates on AtomicHub
+- Collection on NeftyBlocks
+- Templates on NeftyBlocks
+
+Allows quick cross-checking of template counts against live marketplace data.
+
+### 5 — Templates analyzer wording
+
+Improved howToReclaim and description text:
+- "schema rows are permanent, cannot be deleted"
+- "template rows are permanent, cannot be deleted"
+- Clearer distinction between freeing asset rows vs template rows on burnasset
+
+---
+
 ## 2026-02-25 (session 4g — Force refresh, lower ownership TTL, endpoint display)
 
 ### Motivation

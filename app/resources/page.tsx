@@ -5,8 +5,8 @@ import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Activity, AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp,
-  ExternalLink, Info, Layers, Loader2, RefreshCw, Search, Sparkles, Trash2,
-  Zap, Database, Clock, Send, Copy,
+  ExternalLink, Info, Layers, Loader2, RefreshCw, Search, Sparkles,
+  Zap, Database, Clock, Send, Copy, GitCompare,
 } from 'lucide-react';
 import { useWalletStore } from '@/lib/store';
 import { formatUs, formatBytes, pctUsed } from '@/lib/analyzers/accountResources';
@@ -714,6 +714,13 @@ export default function ResourcesPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href="/resources/compare"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors"
+            >
+              <GitCompare className="w-3 h-3" />
+              Compare Wallets
+            </Link>
             <Link
               href="/collections"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors"

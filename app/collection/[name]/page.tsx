@@ -7,8 +7,10 @@ import { useSearchParams, useParams } from 'next/navigation';
 import {
   AlertCircle, CheckCircle2, ChevronDown, ChevronUp,
   Database, Info, Layers, Loader2, RefreshCw,
-  ExternalLink, ArrowLeft, Bug,
+  ExternalLink, ArrowLeft, Bug, Link2,
 } from 'lucide-react';
+import { atomicHub } from '@/lib/link-builders/atomichub';
+import { neftyBlocks } from '@/lib/link-builders/nefty';
 import { useWalletStore } from '@/lib/store';
 import type { AnalyzerResult, AnalyzerSeverity, CleanupItem } from '@/lib/analyzers/types';
 import type { AccountRole, CollectionMeta } from '@/lib/analyzers/collection';
@@ -445,6 +447,42 @@ export default function CollectionResourcesPage() {
               </div>
             </div>
           )}
+
+          {/* External links */}
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={atomicHub.collection(data.collection.collection_name)}
+              target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
+            >
+              <ExternalLink className="w-3 h-3" />
+              AtomicHub
+            </a>
+            <a
+              href={atomicHub.collectionTemplates(data.collection.collection_name)}
+              target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Templates on AtomicHub
+            </a>
+            <a
+              href={neftyBlocks.collection(data.collection.collection_name)}
+              target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
+            >
+              <ExternalLink className="w-3 h-3" />
+              NeftyBlocks
+            </a>
+            <a
+              href={neftyBlocks.templates(data.collection.collection_name)}
+              target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Templates on NeftyBlocks
+            </a>
+          </div>
 
           {/* Quick stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

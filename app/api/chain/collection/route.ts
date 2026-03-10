@@ -24,6 +24,18 @@ import type { AnalyzerResult } from '@/lib/analyzers/types';
 export const runtime = 'nodejs';
 const COLLECTION_TTL = 60; // seconds
 
+// ── Numeric safety ────────────────────────────────────────────────────────────
+// AtomicAssets returns ALL numeric fields as strings in JSON
+// (e.g. { "assets": "1826543" }). JS "+" on two strings concatenates instead
+// of adding — e.g. "0" + "247" + "500" = "0247500" → giant number.
+// safeNum() converts any value to a finite integer or null.
+
+function safeNum(v: unknown): number | null {
+  if (v == null) return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+}
+
 // ── Debug source tracking ─────────────────────────────────────────────────────
 
 interface DebugSource {
@@ -148,23 +160,28 @@ export async function GET(req: NextRequest) {
     : [];
 
   // ── Step 5: Assemble schemas with stats ─────────────────────────────────────
+  // safeNum() is required: AtomicAssets returns numbers as strings,
+  // so raw addition would concatenate instead of sum.
   const schemasWithStats: SchemaWithStats[] = schemas.map((s, i) => ({
     ...s,
-    templateCount: schemaStatsList[i]?.templates ?? null,
-    assetCount:    schemaStatsList[i]?.assets    ?? null,
+    templateCount: safeNum(schemaStatsList[i]?.templates),
+    assetCount:    safeNum(schemaStatsList[i]?.assets),
   }));
 
   const schemaCount = schemas.length > 0 ? schemas.length : null; // null = fetch failed
 
   // Template count = sum of per-schema template counts (exact if all stats fetched)
-  const templateCounts = schemaStatsList.filter(Boolean).map(s => s!.templates);
+  // Use safeNum on each value before summing to prevent string concatenation.
+  const templateCounts = schemaStatsList
+    .map(s => safeNum(s?.templates))
+    .filter((n): n is number => n !== null);
   const templateCount = templateCounts.length > 0
-    ? templateCounts.reduce((s, n) => s + n, 0)
+    ? templateCounts.reduce((acc, n) => acc + n, 0)
     : null;
 
   // Asset count from collection stats (exact)
-  const assetCount = collectionStats?.assets ?? null;
-  const burnedCount = collectionStats?.burned_assets ?? null;
+  const assetCount  = safeNum(collectionStats?.assets);
+  const burnedCount = safeNum(collectionStats?.burned_assets);
 
   // ── Step 6: Run analyzers ────────────────────────────────────────────────────
   const results: AnalyzerResult[] = [];
