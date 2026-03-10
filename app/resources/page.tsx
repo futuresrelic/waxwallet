@@ -1,8 +1,9 @@
 'use client';
 // ─── WAX Resource Inspector / Control Panel ──────────────────────────────────
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Activity, AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp,
   ExternalLink, Info, Layers, Loader2, RefreshCw, Search, Sparkles,
@@ -530,9 +531,11 @@ function CpuPressureSection({ summary }: { summary: CpuPressureSummary }) {
 
 export default function ResourcesPage() {
   const { connectedAccount } = useWalletStore();
+  const searchParams = useSearchParams();
 
   const [inputAccount, setInputAccount] = useState('');
   const [analyzedAccount, setAnalyzedAccount] = useState<string | null>(null);
+  const didAutoAnalyze = useRef(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const [accountData, setAccountData] = useState<WaxAccount | null>(null);
@@ -596,6 +599,18 @@ export default function ResourcesPage() {
   };
 
   const refresh = () => { if (analyzedAccount) analyze(analyzedAccount, true); };
+
+  // ── Auto-analyze from URL query param on mount ─────────────────────────────
+  // Enables "Full analysis →" links from /resources/compare to land pre-loaded.
+  useEffect(() => {
+    if (didAutoAnalyze.current) return;
+    const urlAccount = searchParams.get('account');
+    if (urlAccount) {
+      didAutoAnalyze.current = true;
+      setInputAccount(urlAccount);
+      analyze(urlAccount);
+    }
+  }, [searchParams, analyze]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
 

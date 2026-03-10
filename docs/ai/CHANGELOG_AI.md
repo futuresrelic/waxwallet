@@ -5,6 +5,45 @@ Format: date, what changed, any migration notes.
 
 ---
 
+## 2026-03-10 (session 2) — URL prefill, minted asset lifecycle, reclaimability box
+
+### 1 — /resources reads ?account= on mount (prefill + auto-analyze)
+
+`app/resources/page.tsx`:
+- Added `useSearchParams` + `useEffect` mount handler
+- If `?account=<name>` is present in URL, prefills the input and immediately calls `analyze()`
+- Guard via `didAutoAnalyze` ref prevents double-fire
+- Enables "Full analysis →" links from `/resources/compare` to land pre-loaded
+
+### 2 — Minted Assets Lifecycle section on collection page
+
+`app/collection/[name]/page.tsx` — new section inserted after the Schemas table.
+
+Data sources and what is exact vs estimated:
+
+| Field | Source | Exact? |
+|-------|--------|--------|
+| Live assets | `collections/{name}/stats` → `assets` | Exact |
+| Burned assets | `collections/{name}/stats` → `burned_assets` | Exact |
+| Total minted ever | live + burned | Exact (derived) |
+| Est. RAM — live asset rows | live × 512 bytes | Estimated (~512 bytes/row) |
+| Est. RAM reclaimed by burns | burned × 512 bytes | Estimated |
+| Est. total asset RAM ever | (live + burned) × 512 bytes | Estimated |
+
+512 bytes/row note shown in UI explicitly.
+
+### 3 — Reclaimability summary box
+
+Replaced vague info box with explicit two-column "Can / Cannot reclaim" grid:
+- Can: live asset rows (when current owner burns), assets you still own
+- Cannot: schema rows, template rows, collection row/auth lists
+
+### 4 — External link login note
+
+Added one-line note below external links: "Login state on those sites is independent of this app."
+
+---
+
 ## 2026-03-10 — Link builder fixes, numeric parsing, wallet compare, collection links
 
 ### 1 — Fixed AtomicHub/NeftyBlocks action links

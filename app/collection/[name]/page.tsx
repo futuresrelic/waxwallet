@@ -449,39 +449,45 @@ export default function CollectionResourcesPage() {
           )}
 
           {/* External links */}
-          <div className="flex flex-wrap gap-2">
-            <a
-              href={atomicHub.collection(data.collection.collection_name)}
-              target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
-            >
-              <ExternalLink className="w-3 h-3" />
-              AtomicHub
-            </a>
-            <a
-              href={atomicHub.collectionTemplates(data.collection.collection_name)}
-              target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
-            >
-              <ExternalLink className="w-3 h-3" />
-              Templates on AtomicHub
-            </a>
-            <a
-              href={neftyBlocks.collection(data.collection.collection_name)}
-              target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
-            >
-              <ExternalLink className="w-3 h-3" />
-              NeftyBlocks
-            </a>
-            <a
-              href={neftyBlocks.templates(data.collection.collection_name)}
-              target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
-            >
-              <ExternalLink className="w-3 h-3" />
-              Templates on NeftyBlocks
-            </a>
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-2">
+              <a
+                href={atomicHub.collection(data.collection.collection_name)}
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
+              >
+                <ExternalLink className="w-3 h-3" />
+                AtomicHub
+              </a>
+              <a
+                href={atomicHub.collectionTemplates(data.collection.collection_name)}
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
+              >
+                <ExternalLink className="w-3 h-3" />
+                Templates on AtomicHub
+              </a>
+              <a
+                href={neftyBlocks.collection(data.collection.collection_name)}
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
+              >
+                <ExternalLink className="w-3 h-3" />
+                NeftyBlocks
+              </a>
+              <a
+                href={neftyBlocks.templates(data.collection.collection_name)}
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
+              >
+                <ExternalLink className="w-3 h-3" />
+                Templates on NeftyBlocks
+              </a>
+            </div>
+            <p className="text-[11px] text-zinc-600 flex items-center gap-1">
+              <Info className="w-3 h-3" />
+              External links open in a new tab. Login state on those sites is independent of this app.
+            </p>
           </div>
 
           {/* Quick stats */}
@@ -519,39 +525,152 @@ export default function CollectionResourcesPage() {
             </div>
           )}
 
-          {/* RAM obligations summary */}
-          {allCleanupItems.length > 0 && (
-            <div>
-              <h2 className="text-base font-semibold text-white mb-3 flex items-center gap-2">
-                <Database className="w-4 h-4 text-amber-400" />
-                RAM Obligations Summary
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-                <div className="p-4 rounded-xl bg-zinc-900 border border-amber-500/20">
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Permanent RAM</p>
-                  <p className="text-2xl font-bold font-mono text-amber-400 mt-1">{formatBytes(totalPermBytes)}</p>
-                  <p className="text-xs text-zinc-500 mt-0.5">Schemas + templates — cannot be reclaimed</p>
+          {/* Minted Assets Lifecycle */}
+          {(data.assetCount != null || data.stats.burned_assets != null) && (() => {
+            // All values from collection/stats endpoint — exact counts from AtomicAssets.
+            // RAM per asset row is estimated at ~512 bytes (struct size approximation).
+            const BYTES_PER_ASSET = 512;
+            const live   = data.assetCount         ?? 0;
+            const burned = data.stats.burned_assets ?? 0;
+            const totalMinted = live + burned;
+            const liveRam    = live   * BYTES_PER_ASSET;
+            const reclaimedRam = burned * BYTES_PER_ASSET;
+            const totalRam   = totalMinted * BYTES_PER_ASSET;
+
+            return (
+              <div>
+                <h2 className="text-base font-semibold text-white mb-3 flex items-center gap-2">
+                  <Database className="w-4 h-4 text-blue-400" />
+                  Minted Assets Lifecycle
+                </h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                  <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Total minted ever</p>
+                    <p className="text-xl font-bold font-mono text-white mt-1">
+                      {totalMinted.toLocaleString()}
+                    </p>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">live + burned</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Still circulating / live</p>
+                    <p className="text-xl font-bold font-mono text-amber-400 mt-1">
+                      {live.toLocaleString()}
+                    </p>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">RAM still allocated</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Burned</p>
+                    <p className="text-xl font-bold font-mono text-green-400 mt-1">
+                      {burned.toLocaleString()}
+                    </p>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">RAM already freed</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-zinc-900 border border-amber-500/20">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Est. RAM — live asset rows</p>
+                    <p className="text-xl font-bold font-mono text-amber-400 mt-1">
+                      {formatBytes(liveRam)}
+                    </p>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">Still allocated · ~512 bytes/row</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-zinc-900 border border-green-500/20">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Est. RAM reclaimed by burns</p>
+                    <p className="text-xl font-bold font-mono text-green-400 mt-1">
+                      {formatBytes(reclaimedRam)}
+                    </p>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">Already freed on burnasset</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Est. total asset RAM ever</p>
+                    <p className="text-xl font-bold font-mono text-zinc-400 mt-1">
+                      {formatBytes(totalRam)}
+                    </p>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">Peak allocation over lifetime</p>
+                  </div>
                 </div>
-                <div className="p-4 rounded-xl bg-zinc-900 border border-green-500/20">
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Possibly reclaimable</p>
-                  <p className="text-2xl font-bold font-mono text-green-400 mt-1">{formatBytes(totalRecBytes)}</p>
-                  <p className="text-xs text-zinc-500 mt-0.5">Asset RAM — only when current owners burn</p>
+                <div className="flex items-start gap-3 p-4 rounded-xl bg-zinc-900/60 border border-zinc-800">
+                  <Info className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
+                  <div className="text-xs text-zinc-400 leading-relaxed space-y-1">
+                    <p>
+                      <strong className="text-zinc-300">Who pays:</strong>{' '}
+                      The account that minted each asset (the <em>authorized_minter</em> at the time of mint) is the RAM payer — not the current owner.
+                    </p>
+                    <p>
+                      <strong className="text-zinc-300">When is RAM freed:</strong>{' '}
+                      Each asset row is freed when the <em>current owner</em> calls <code>burnasset</code>. You cannot force reclamation once ownership was transferred.
+                    </p>
+                    <p>
+                      <strong className="text-zinc-300">Row estimate:</strong>{' '}
+                      ~512 bytes per asset row is an approximation based on typical AtomicAssets struct sizes. Actual usage varies by attribute count and data density.
+                    </p>
+                  </div>
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-4 rounded-xl bg-zinc-900 border border-blue-500/20">
-                <Info className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
-                <div className="text-xs text-zinc-400 leading-relaxed">
-                  <p className="font-semibold text-zinc-300 mb-1">Understanding collection RAM</p>
-                  <ul className="space-y-1 list-disc list-inside">
-                    <li>Schema and template rows are <strong>permanent</strong> — AtomicAssets has no delete operation for these.</li>
-                    <li>Asset RAM is freed when the <strong>current owner burns</strong> the asset — you cannot force this.</li>
-                    <li>The RAM payer is set at creation time, not by current ownership.</li>
-                    <li>Burning all assets of a template frees asset row RAM but <em>not</em> the template row itself.</li>
-                  </ul>
-                </div>
+            );
+          })()}
+
+          {/* What you can and cannot reclaim */}
+          <div>
+            <h2 className="text-base font-semibold text-white mb-3 flex items-center gap-2">
+              <Database className="w-4 h-4 text-amber-400" />
+              RAM Obligations — What You Can Reclaim
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              {allCleanupItems.length > 0 && (
+                <>
+                  <div className="p-4 rounded-xl bg-zinc-900 border border-amber-500/20">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Permanent RAM</p>
+                    <p className="text-2xl font-bold font-mono text-amber-400 mt-1">{formatBytes(totalPermBytes)}</p>
+                    <p className="text-xs text-zinc-500 mt-0.5">Schemas + templates — cannot be reclaimed under normal AtomicAssets behavior</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-zinc-900 border border-green-500/20">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Possibly reclaimable</p>
+                    <p className="text-2xl font-bold font-mono text-green-400 mt-1">{formatBytes(totalRecBytes)}</p>
+                    <p className="text-xs text-zinc-500 mt-0.5">Asset RAM — freed only when current owners burn their assets</p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Concise split: can / cannot */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/20">
+                <p className="text-xs font-semibold text-green-400 mb-2 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Can reclaim
+                </p>
+                <ul className="space-y-1.5 text-xs text-zinc-400">
+                  <li className="flex items-start gap-1.5">
+                    <span className="text-green-400 mt-px">›</span>
+                    <span><strong className="text-zinc-300">Live asset rows</strong> — only when the <em>current owner</em> burns the asset. You cannot force this once ownership has transferred.</span>
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <span className="text-green-400 mt-px">›</span>
+                    <span><strong className="text-zinc-300">Assets you still own</strong> — you can burn your own holdings directly to reclaim your RAM.</span>
+                  </li>
+                </ul>
+              </div>
+              <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/20">
+                <p className="text-xs font-semibold text-red-400 mb-2 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  Cannot reclaim
+                </p>
+                <ul className="space-y-1.5 text-xs text-zinc-400">
+                  <li className="flex items-start gap-1.5">
+                    <span className="text-red-400 mt-px">›</span>
+                    <span><strong className="text-zinc-300">Schema rows</strong> — AtomicAssets has no delete-schema operation. Permanent.</span>
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <span className="text-red-400 mt-px">›</span>
+                    <span><strong className="text-zinc-300">Template rows</strong> — AtomicAssets has no delete-template operation. Permanent even if all assets of a template are burned.</span>
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <span className="text-red-400 mt-px">›</span>
+                    <span><strong className="text-zinc-300">Collection row / auth lists</strong> — permanent under normal conditions unless the collection structure is dissolved.</span>
+                  </li>
+                </ul>
               </div>
             </div>
-          )}
+          </div>
 
           {/* Detailed analyzers */}
           <div>
